@@ -1,0 +1,10 @@
+
+# as a library crate we don't include Cargo.lock in version control
+Cargo.lock
+
+
+# enables unit test parms::urltests::test_urlspec_adhoc
+/adhoctest.md
+
+/.vscode/
+/target
