@@ -6,15 +6,26 @@ use super::BLOCKSIZE;
 
 pub struct MapiWriteStream<W> {
     inner: W,
+    closed: bool,
 }
 
 impl<W: io::Write> MapiWriteStream<W> {
     pub fn new(inner: W) -> Self {
-        MapiWriteStream { inner }
+        MapiWriteStream {
+            inner,
+            closed: false,
+        }
     }
 
     fn write_block(&mut self, data: &[u8], last: bool) -> io::Result<()> {
         assert!(data.len() <= BLOCKSIZE);
+        if self.closed {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "cannot write more, message has already ended",
+            ));
+        }
+        self.closed = last;
         let header = Header::new(data.len(), last);
         let mut ioslices = [IoSlice::new(header.as_bytes()), IoSlice::new(data)];
         write_all_vectored(&mut self.inner, &mut ioslices)
@@ -45,8 +56,8 @@ impl<W: io::Write> MapiWriteStream<W> {
         &mut self.inner
     }
 
-    pub fn finish(mut self) -> io::Result<W> {
-        self.write_block(&[], true)?;
+    pub fn finish(mut self, data: &[u8]) -> io::Result<W> {
+        self.write_data(data, true)?;
         self.inner.flush()?;
         Ok(self.inner)
     }
@@ -93,7 +104,7 @@ mod tests {
         let aaa: Vec<u8> = iter::repeat(b'A').take(9000).collect();
         let mut refd = ReferenceData::new();
         refd.mark("block1");
-        refd.data(Header::new(7, true));
+        refd.data(Header::new(7, false));
         refd.data(b"monetdb".as_slice());
         refd.mark("data1");
         refd.data(Header::new(8190, false));
@@ -104,7 +115,7 @@ mod tests {
 
         let mut verifier = refd.verifier();
         let mut wr = MapiWriteStream::new(&mut verifier);
-        wr.write_block(b"monetdb", true).unwrap();
+        wr.write_block(b"monetdb", false).unwrap();
         wr.write_data(&aaa, true).unwrap();
 
         verifier.assert_end();
@@ -131,7 +142,7 @@ mod tests {
         assert_eq!(wr.write(b"monetdb").unwrap(), 7);
         assert_eq!(state(wr.inner().get_ref()), BlockState::Start);
 
-        let cursor = wr.finish().unwrap();
+        let cursor = wr.finish(&[]).unwrap();
         assert_eq!(state(cursor.get_ref()), BlockState::End);
     }
 }

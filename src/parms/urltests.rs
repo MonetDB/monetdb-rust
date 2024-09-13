@@ -140,7 +140,7 @@ impl State {
             return Ok(value.clone());
         }
 
-        let validated = self.parms.clone().validate();
+        let validated = self.parms.validate();
         let valid = validated.is_ok();
 
         match key {

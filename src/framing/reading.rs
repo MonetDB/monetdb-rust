@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::io::{self, ErrorKind};
+use std::io::{self, ErrorKind, Read};
 
 use super::{blockstate::BlockState, BLOCKSIZE};
 
@@ -9,7 +9,7 @@ pub struct MapiReadStream<R> {
     state: BlockState,
 }
 
-impl<R: io::Read> MapiReadStream<R> {
+impl<R: Read> MapiReadStream<R> {
     pub fn new(inner: R) -> Self {
         MapiReadStream {
             inner,
@@ -90,9 +90,21 @@ impl<R: io::Read> MapiReadStream<R> {
         }
         Ok(())
     }
+
+    pub fn read_max(&mut self, mut buffer: &mut [u8]) -> io::Result<usize> {
+        let orig_len = buffer.len();
+        while !buffer.is_empty() {
+            let n = self.read(buffer)?;
+            if n == 0 {
+                break;
+            }
+            buffer = &mut buffer[n..];
+        }
+        Ok(orig_len - buffer.len())
+    }
 }
 
-impl<R: io::Read> io::Read for MapiReadStream<R> {
+impl<R: Read> Read for MapiReadStream<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         MapiReadStream::do_read(self, buf)
     }

@@ -226,9 +226,9 @@ impl Value {
 
     pub fn str_value(&self) -> Cow<'_, str> {
         match self {
-            Value::Bool(b) => render_bool(*b).into(),
+            Value::Bool(b) => Cow::Borrowed(render_bool(*b)),
             Value::Int(i) => i.to_string().into(),
-            Value::Str(cow) => cow.as_ref().into(),
+            Value::Str(cow) => Cow::Borrowed(cow),
         }
     }
 
@@ -509,7 +509,7 @@ impl Parameters {
         Ok(())
     }
 
-    pub fn validate(self) -> ParmResult<Validated> {
+    pub fn validate(&self) -> ParmResult<Validated<'_>> {
         Validated::new(self)
     }
 }
@@ -688,57 +688,57 @@ pub enum TlsVerify {
 }
 
 #[derive(Debug)]
-pub struct Validated {
-    pub database: Cowstr,
+pub struct Validated<'a> {
+    pub database: Cow<'a, str>,
     pub tls: bool,
-    pub user: Cowstr,
-    pub password: Cowstr,
+    pub user: Cow<'a, str>,
+    pub password: Cow<'a, str>,
     pub autocommit: bool,
-    pub cert: Cowstr,
-    pub language: Cowstr,
+    pub cert: Cow<'a, str>,
+    pub language: Cow<'a, str>,
     pub replysize: i64,
-    pub schema: Cowstr,
+    pub schema: Cow<'a, str>,
     pub connect_timezone: i64,
     pub connect_scan: bool,
-    pub connect_unix: Cowstr,
-    pub connect_tcp: Cowstr,
+    pub connect_unix: Cow<'a, str>,
+    pub connect_tcp: Cow<'a, str>,
     pub connect_port: u16,
     pub connect_tls_verify: TlsVerify,
     pub connect_certhash_digits: String,
-    pub connect_clientkey: Cowstr,
-    pub connect_clientcert: Cowstr,
+    pub connect_clientkey: Cow<'a, str>,
+    pub connect_clientcert: Cow<'a, str>,
     pub connect_binary: u16,
 }
 
-impl Validated {
+impl Validated<'_> {
     #[allow(unused_variables)]
-    fn new(mut parms: Parameters) -> ParmResult<Validated> {
+    fn new(parms: &Parameters) -> ParmResult<Validated> {
         use Parm::*;
         use ParmError::*;
 
         // First extract all members, type checking them in the process
-        let raw_database: Cowstr = parms.take(Database).into_str();
-        let raw_host: Cowstr = parms.take(Host).into_str();
+        let raw_database: Cow<str> = parms.get_str(Database)?;
+        let raw_host: Cow<str> = parms.get_str(Host)?;
         let raw_port: i64 = parms.get_int(Port)?;
         let raw_tls: bool = parms.get_bool(Tls)?;
-        let raw_user: Cowstr = parms.take(User).into_str();
-        let raw_password: Cowstr = parms.take(Password).into_str();
+        let raw_user: Cow<str> = parms.get_str(User)?;
+        let raw_password: Cow<str> = parms.get_str(Password)?;
         let raw_autocommit: bool = parms.get_bool(Autocommit)?;
-        let raw_cert: Cowstr = parms.take(Cert).into_str();
-        let raw_certhash: Cowstr = parms.take(CertHash).into_str();
-        let raw_clientcert: Cowstr = parms.take(ClientCert).into_str();
-        let raw_clientkey: Cowstr = parms.take(ClientKey).into_str();
-        let raw_language: Cowstr = parms.take(Language).into_str();
+        let raw_cert: Cow<str> = parms.get_str(Cert)?;
+        let raw_certhash: Cow<str> = parms.get_str(CertHash)?;
+        let raw_clientcert: Cow<str> = parms.get_str(ClientCert)?;
+        let raw_clientkey: Cow<str> = parms.get_str(ClientKey)?;
+        let raw_language: Cow<str> = parms.get_str(Language)?;
         let raw_replysize: i64 = parms.get_int(ReplySize)?;
-        let raw_schema: Cowstr = parms.take(Schema).into_str();
-        let raw_sock: Cowstr = parms.take(Sock).into_str();
-        let raw_sockdir: Cowstr = parms.take(SockDir).into_str();
+        let raw_schema: Cow<str> = parms.get_str(Schema)?;
+        let raw_sock: Cow<str> = parms.get_str(Sock)?;
+        let raw_sockdir: Cow<str> = parms.get_str(SockDir)?;
 
         let raw_timezone: i64 = parms.get_int(Timezone)?;
-        let raw_binary: Value = parms.take(Binary);
+        let raw_binary: &Value = parms.get(Binary);
 
-        let raw_tableschema: Cowstr = parms.take(TableSchema).into_str();
-        let raw_table: Cowstr = parms.take(Table).into_str();
+        let raw_tableschema: Cow<str> = parms.get_str(TableSchema)?;
+        let raw_table: Cow<str> = parms.get_str(Table)?;
 
         // 1. The parameters have the types listed in the table in Section
         //    Parameters.
@@ -824,7 +824,7 @@ impl Validated {
             "".into()
         };
 
-        let connect_tcp: Cowstr = if !sock_empty {
+        let connect_tcp = if !sock_empty {
             "".into()
         } else if host_empty {
             "localhost".into()
