@@ -3,14 +3,14 @@
 use core::{fmt, str};
 use std::{
     borrow::Cow,
-    io::{self, ErrorKind, Read},
+    io::{self, ErrorKind, Write},
     net::{TcpStream, ToSocketAddrs},
     os::unix::net::UnixStream,
     str::Utf8Error,
 };
 
 use crate::{
-    framing::{reading::MapiReadStream, writing::MapiWriteStream},
+    framing::{reading::MapiReader, writing::MapiBuf},
     parms::{Parameters, ParmError, Validated},
     util::hash_algorithms,
     IoError,
@@ -21,14 +21,14 @@ use super::{ServerSock, ServerState};
 #[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
 pub enum ConnectError {
     #[error("{0}")]
-    IO(#[from] IoError),
-    #[error("{0}")]
     Parm(#[from] ParmError),
+    #[error("{0}")]
+    IO(#[from] IoError),
     #[error("invalid utf-8 sequence")]
     UTF(#[from] Utf8Error),
     #[error("{0} in server challenge")]
     InvalidChallenge(String),
-    #[error("server requests unsupported hash algorithm: {0}")]
+    #[error("server requested unsupported hash algorithm: {0}")]
     UnsupportedHashAlgo(String),
     #[error("TLS (monetdbs://) has not been enabled")]
     TlsNotSupported,
@@ -75,8 +75,9 @@ impl fmt::Display for Endian {
 fn connect_unix_socket(parms: &Validated) -> io::Result<ServerSock> {
     let path = parms.connect_unix.as_ref();
     match UnixStream::connect(path) {
-        Ok(s) => {
+        Ok(mut s) => {
             debug!("connected to {path}");
+            s.write_all(b"0")?;
             Ok(ServerSock::new(s))
         }
         Err(e) => {
@@ -149,6 +150,11 @@ enum Login {
 pub fn lalaconnect(mut parms: Parameters) -> ConnResult<(ServerSock, ServerState)> {
     'redirect: for _ in 0..10 {
         let validated = parms.validate()?;
+        if log_enabled!(log::Level::Debug) {
+            if let Ok(url) = parms.url_without_credentials() {
+                debug!("connecting to {url}");
+            }
+        }
         let mut sock = connect_socket(&validated)?;
         'restart: loop {
             match login(&validated, sock)? {
@@ -172,33 +178,27 @@ pub fn lalaconnect(mut parms: Parameters) -> ConnResult<(ServerSock, ServerState
 }
 
 fn login(parms: &Validated, sock: ServerSock) -> ConnResult<Login> {
-    // carefully read the challenge
-    let mut buffer = [0u8; 3000];
-    let mut rd = MapiReadStream::new(sock);
-    let n = rd.read_max(&mut buffer)?;
-    if n == buffer.len() {
-        return Err(ConnectError::InvalidChallenge("too long".to_string()));
-    }
-    let sock = rd.finish()?;
+    let mut server_message = String::with_capacity(1000);
+    let mut mbuf = MapiBuf::new();
+
+    // read the challenge
+    let sock = MapiReader::to_limited_string(sock, &mut server_message, 5000)?;
 
     // determine the response
-    let line = str::from_utf8(&buffer[..n])?;
-    let chal = Challenge::new(line)?;
+    let chal = Challenge::new(&server_message)?;
     let mut response = String::with_capacity(500);
     let state = challenge_response(parms, &chal, &mut response)?;
-    trace!("sending response {response:?}");
 
     // send the response
-    let wr = MapiWriteStream::new(sock);
-    let sock = wr.finish(response.as_bytes())?;
+    mbuf.append(response);
+    let sock = mbuf.write_reset(sock)?;
 
     // read the server response
-    let mut server_response = String::with_capacity(1000);
-    let mut rd = MapiReadStream::new(sock);
-    rd.read_to_string(&mut server_response)?;
-    let sock = rd.finish()?;
+    server_message.clear();
+    let sock = MapiReader::to_limited_string(sock, &mut server_message, 5000)?;
 
-    process_redirects(sock, state, &server_response)
+    // process the server response
+    process_redirects(sock, state, &server_message)
 }
 
 fn challenge_response(
@@ -258,7 +258,7 @@ fn challenge_response(
 fn process_redirects(sock: ServerSock, state: ServerState, reply: &str) -> ConnResult<Login> {
     let reply = reply.trim_ascii();
 
-    if reply == "" || reply.starts_with("=OK") {
+    if reply.is_empty() || reply.starts_with("=OK") {
         debug!("login complete");
     } else if reply.starts_with('^') {
         // we only want the first one
@@ -269,12 +269,10 @@ fn process_redirects(sock: ServerSock, state: ServerState, reply: &str) -> ConnR
         } else {
             return Ok(Login::Redirect(redirect.to_string()));
         }
-    } else if reply.starts_with('!') {
-        let message = &reply[1..];
+    } else if let Some(message) = reply.strip_prefix('!') {
         debug!("login rejected: {message}");
         return Err(ConnectError::Rejected(message.to_string()));
-    } else if reply.starts_with('#') {
-        let message = &reply[1..];
+    } else if let Some(message) = reply.strip_prefix('#') {
         debug!("login complete with welcome message {message:?}");
     } else {
         debug!("unexpected response: {reply:?}");
@@ -299,7 +297,7 @@ struct Challenge<'a> {
 
 impl<'a> Challenge<'a> {
     fn new(line: &'a str) -> ConnResult<Self> {
-        trace!("parsing challenge {line:?}");
+        // trace!("parsing challenge {line:?}");
         let mut parts = line.trim_end_matches(':').split(':');
 
         let err = |msg: &str| ConnectError::InvalidChallenge(msg.to_string());

@@ -1,6 +1,8 @@
 use std::{borrow::Borrow, ops::Range};
 
-use super::BLOCKSIZE;
+use crate::framing::FramingError;
+
+use super::{FramingResult, BLOCKSIZE};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Header([u8; 2]);
@@ -13,13 +15,16 @@ impl Header {
         Header(bytes)
     }
 
-    pub fn from_bytes(bytes: [u8; 2]) -> Self {
+    pub fn from_bytes(bytes: [u8; 2]) -> FramingResult<Self> {
         let header = Header(bytes);
-        assert!(header.size() <= BLOCKSIZE);
-        header
+        if header.size() <= BLOCKSIZE {
+            Ok(header)
+        } else {
+            Err(FramingError::InvalidBlockSize)
+        }
     }
 
-    pub fn from_slice(slice: &[u8]) -> Self {
+    pub fn from_slice(slice: &[u8]) -> FramingResult<Self> {
         let bytes = slice.try_into().unwrap();
         Self::from_bytes(bytes)
     }
@@ -69,7 +74,7 @@ impl BlockState {
         Self::new(header.size(), header.is_last())
     }
 
-    pub fn skip_headers(&self, data: &[u8]) -> (Range<usize>, BlockState) {
+    pub fn skip_headers(&self, data: &[u8]) -> FramingResult<(Range<usize>, BlockState)> {
         use BlockState::*;
 
         let end = data.len();
@@ -81,17 +86,17 @@ impl BlockState {
             match st {
                 Body { remaining, last } if remaining > avail => {
                     // body extends beyond available data, return smaller Body
-                    return (pos..pos + avail, Self::new(remaining - avail, last));
+                    return Ok((pos..pos + avail, Self::new(remaining - avail, last)));
                 }
 
                 Body { remaining, last } => {
                     // body ends somewhere in the buffer, new block starts there
                     assert_ne!(remaining, 0);
-                    return (pos..pos + remaining, Self::new(0, last));
+                    return Ok((pos..pos + remaining, Self::new(0, last)));
                 }
 
                 Start if avail >= 2 => {
-                    let header = Header::from_slice(&data[pos..pos + 2]);
+                    let header = Header::from_slice(&data[pos..pos + 2])?;
                     st = Self::from_header(header);
                     pos += 2;
                 }
@@ -100,12 +105,12 @@ impl BlockState {
                     assert_eq!(avail, 1);
                     assert_eq!(pos, data.len() - 1);
                     let lo = data[pos];
-                    return (end..end, PartialHeader(lo));
+                    return Ok((end..end, PartialHeader(lo)));
                 }
 
                 PartialHeader(lo) => {
                     assert_ne!(avail, 0);
-                    let header = Header::from_bytes([lo, data[pos]]);
+                    let header = Header::from_bytes([lo, data[pos]])?;
                     pos += 1;
                     st = Self::from_header(header);
                 }
@@ -116,13 +121,13 @@ impl BlockState {
             }
         }
 
-        (end..end, st)
+        Ok((end..end, st))
     }
 
-    pub fn interpret(&mut self, data: impl AsRef<[u8]>) -> Range<usize> {
-        let (range, new) = self.skip_headers(data.as_ref());
+    pub fn interpret(&mut self, data: impl AsRef<[u8]>) -> FramingResult<Range<usize>> {
+        let (range, new) = self.skip_headers(data.as_ref())?;
         *self = new;
-        range
+        Ok(range)
     }
 }
 
@@ -138,13 +143,13 @@ mod tests {
         let mut bs = BlockState::default();
         assert_eq!(bs, Start);
 
-        bs.interpret(b"");
+        bs.interpret(b"").unwrap();
         assert_eq!(bs, Start);
 
-        bs.interpret([0, 0]);
+        bs.interpret([0, 0]).unwrap();
         assert_eq!(bs, Start);
 
-        bs.interpret([1, 0]);
+        bs.interpret([1, 0]).unwrap();
         assert_eq!(bs, End);
     }
 
@@ -153,7 +158,7 @@ mod tests {
     }
 
     fn step<'a>(bs: &mut BlockState, data: &mut &'a [u8]) -> &'a [u8] {
-        let range = bs.interpret(*data);
+        let range = bs.interpret(*data).unwrap();
         let new_start = range.end;
         let extracted = &data[range];
         *data = &data[new_start..];

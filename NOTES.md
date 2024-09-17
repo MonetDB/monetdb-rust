@@ -1,9 +1,11 @@
 
 
+try to move our_logger to util::our_loggers
+
 
 connect: set handshake options etc
 
-
+store login message somewhere?
 
 
 Path support in Parameters
@@ -22,3 +24,7 @@ test mapi incomplete reads and writes
 prehashed passwords
 
 non-local redirects
+
+default time zone
+
+tls

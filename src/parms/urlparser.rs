@@ -114,6 +114,28 @@ fn percent_decode(s: &str) -> ParmResult<Cow<'_, str>> {
     }
 }
 
+fn percent_encode(buffer: &mut String, s: &str) {
+    for &byte in s.as_bytes() {
+        let safe = matches!(
+            byte,
+            b'a' ..= b'z' | b'A' ..= b'Z' | b'0' ..= b'9'
+            | b'-' | b'.' | b'_' | b'~' | b'!'
+            | b'#' | b'$' | b'&' | b'\'' | b'('
+            | b')' | b'*' | b'+' | b',' | b'/'
+            | b':' | b';' | b'=' | b'?' | b'@'
+            | b'[' | b']'
+        );
+        if safe {
+            buffer.push(byte as char);
+        } else {
+            const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+            buffer.push('%');
+            buffer.push(HEX_DIGITS[(byte / 16) as usize] as char);
+            buffer.push(HEX_DIGITS[(byte % 16) as usize] as char);
+        }
+    }
+}
+
 #[test]
 fn test_percent_decode() {
     #[track_caller]
@@ -198,4 +220,71 @@ fn parse_legacy_url(parms: &mut Parameters, url: &str) -> ParmResult<()> {
     }
 
     Ok(())
+}
+
+pub fn url_from_parms(
+    parms: &Parameters,
+    selection: impl IntoIterator<Item = Parm>,
+) -> ParmResult<String> {
+    use fmt::Write;
+    use Parm::*;
+    let mut url = String::with_capacity(80);
+
+    let scheme = if parms.get_bool(Tls)? {
+        "monetdbs"
+    } else {
+        "monetdb"
+    };
+    url.push_str(scheme);
+    url.push_str("://");
+
+    let port = match parms.get_int(Port)? {
+        -1 | 50000 => None,
+        p => Some(p),
+    };
+    let host = parms.get_str(Host)?;
+    let mut host: &str = &host;
+    if host == "localhost" {
+        host = "";
+    }
+    if port.is_some() && host.is_empty() {
+        host = "localhost";
+    }
+    percent_encode(&mut url, host);
+    if let Some(p) = port {
+        write!(url, ":{p}").unwrap();
+    }
+
+    let database = parms.get_str(Database)?;
+    let tableschema = parms.get_str(TableSchema)?;
+    let table = parms.get_str(Table)?;
+    if !database.is_empty() || !tableschema.is_empty() || !table.is_empty() {
+        url.push('/');
+        percent_encode(&mut url, &database);
+    }
+    if !tableschema.is_empty() || !table.is_empty() {
+        url.push('/');
+        percent_encode(&mut url, &tableschema);
+    }
+    if !table.is_empty() {
+        url.push('/');
+        percent_encode(&mut url, &table);
+    }
+
+    let mut sep = '?';
+    for p in selection {
+        if p.is_core() {
+            continue;
+        }
+        if !parms.is_default(p) {
+            url.push(sep);
+            url.push_str(p.as_str());
+            url.push('=');
+            let value = parms.get_str(p)?;
+            percent_encode(&mut url, &value);
+            sep = '&';
+        }
+    }
+
+    Ok(url)
 }

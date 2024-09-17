@@ -32,8 +32,8 @@ macro_rules! trace {
 }
 
 macro_rules! log_enabled {
-    (target: $target:expr, $($arg:tt)+) => (::log::log_enabled!(target: $target, $($arg)+));
-    ($($arg:tt)+) => (::log::log_enabled!(target: "monetdb", $($arg)+))
+    (target: $target:expr, $lvl:expr) => (::log::log_enabled!(target: $target, $lvl));
+    ($lvl:expr) => (::log::log_enabled!(target: crate::our_logger::OUR_LOGGER_NAME, $lvl));
 }
 
 #[cfg(test)]

@@ -4,14 +4,14 @@ use std::io::{self, ErrorKind, Read};
 
 use super::{blockstate::BlockState, BLOCKSIZE};
 
-pub struct MapiReadStream<R> {
+pub struct MapiReader<R> {
     inner: R,
     state: BlockState,
 }
 
-impl<R: Read> MapiReadStream<R> {
+impl<R: Read> MapiReader<R> {
     pub fn new(inner: R) -> Self {
-        MapiReadStream {
+        MapiReader {
             inner,
             state: BlockState::Start,
         }
@@ -37,8 +37,14 @@ impl<R: Read> MapiReadStream<R> {
     }
 
     fn read_header(&mut self, buf: &mut [u8]) -> io::Result<()> {
-        self.inner.read_exact(buf)?;
-        self.state.interpret(buf);
+        match self.inner.read_exact(buf) {
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                // read_exact's error message is confusing here, replace with plain
+                return Err(io::ErrorKind::UnexpectedEof.into());
+            }
+            other => other?,
+        }
+        self.state.interpret(buf)?;
         Ok(())
     }
 
@@ -54,13 +60,13 @@ impl<R: Read> MapiReadStream<R> {
         };
         let n = ideal_read.min(buf.len());
         let nread = self.read_some(&mut buf[..n])?;
-        let range = self.state.interpret(&buf[..nread]);
+        let range = self.state.interpret(&buf[..nread])?;
         assert_eq!(range.start, 0); // we were in state Body or we wouldn't have got here
 
         if range.end < nread {
             // we succeeded in reading (part of) the next header
             let tail = &buf[range.end..nread];
-            let next_range = self.state.interpret(tail);
+            let next_range = self.state.interpret(tail)?;
             assert!(next_range.is_empty());
             assert_eq!(next_range.end, tail.len());
         }
@@ -104,9 +110,49 @@ impl<R: Read> MapiReadStream<R> {
     }
 }
 
-impl<R: Read> Read for MapiReadStream<R> {
+impl<R: Read> Read for MapiReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        MapiReadStream::do_read(self, buf)
+        MapiReader::do_read(self, buf)
+    }
+}
+
+impl<R: Read> MapiReader<R> {
+    pub fn to_end(rd: R, buffer: &mut Vec<u8>) -> io::Result<R> {
+        let mut reader = Self::new(rd);
+        reader.read_to_end(buffer)?;
+        reader.finish()
+    }
+
+    pub fn to_string(rd: R, buffer: &mut String) -> io::Result<R> {
+        let mut reader = Self::new(rd);
+        reader.read_to_string(buffer)?;
+        reader.finish()
+    }
+
+    pub fn to_limited(rd: R, buffer: &mut Vec<u8>, limit: usize) -> io::Result<R> {
+        let mut reader = Self::new(rd);
+        (&mut reader).take(limit as u64).read_to_end(buffer)?;
+        if let BlockState::End = reader.state {
+            reader.finish()
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "incoming message too long",
+            ))
+        }
+    }
+
+    pub fn to_limited_string(rd: R, buffer: &mut String, limit: usize) -> io::Result<R> {
+        let mut reader = Self::new(rd);
+        (&mut reader).take(limit as u64).read_to_string(buffer)?;
+        if let BlockState::End = reader.state {
+            reader.finish()
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "incoming message too long",
+            ))
+        }
     }
 }
 
@@ -116,7 +162,7 @@ mod tests {
 
     use crate::{framing::blockstate::Header, util::referencedata::ReferenceData};
 
-    use super::MapiReadStream;
+    use super::MapiReader;
 
     #[test]
     fn test_read() {
@@ -143,7 +189,7 @@ mod tests {
 
         // try reading block by block
 
-        let mut rd = MapiReadStream::new(master_cursor.clone());
+        let mut rd = MapiReader::new(master_cursor.clone());
         let mut buffer = [0u8; 10];
 
         assert_eq!(rd.do_read(&mut buffer).unwrap(), 5);
@@ -158,14 +204,14 @@ mod tests {
 
         // start reading next message
         let cursor = rd.finish().unwrap();
-        let mut rd = MapiReadStream::new(cursor);
+        let mut rd = MapiReader::new(cursor);
 
         assert_eq!(rd.do_read(&mut buffer).unwrap(), 4);
         assert_eq!(&buffer[..4], b"yeah");
         assert_eq!(rd.do_read(&mut buffer).unwrap(), 0);
 
         // if we just read from the stream we don't notice the block boundaries.
-        let mut rd = MapiReadStream::new(master_cursor.clone());
+        let mut rd = MapiReader::new(master_cursor.clone());
         let mut message = String::new();
         rd.read_to_string(&mut message).unwrap();
         assert_eq!(message, "monetdb");

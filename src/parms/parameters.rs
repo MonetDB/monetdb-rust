@@ -1,7 +1,7 @@
 use array_macro::array;
 use std::mem;
 
-use urlparser::parse_any_url;
+use urlparser::{parse_any_url, url_from_parms};
 
 use super::*;
 
@@ -101,6 +101,9 @@ impl Parm {
         matches!(self, Tls | Host | Port | Database | TableSchema | Table)
     }
 
+    pub fn is_sensitive(&self) -> bool {
+        matches!(self, Parm::User | Parm::Password)
+    }
     pub fn ignored(name: &str) -> bool {
         name.contains('_')
     }
@@ -388,6 +391,8 @@ pub const DEFAULT_PARAMETERS: Parameters = {
     }
 };
 
+static THE_DEFAULT_PARAMETERS: Parameters = DEFAULT_PARAMETERS;
+
 // This function is only used in the definition of DEFAULT_PARAMETERS. It's the
 // source of truth for the default parameter values.
 //
@@ -452,7 +457,7 @@ impl Parameters {
     }
 
     pub fn reset(&mut self, parm: Parm) {
-        self.set(parm, DEFAULT_PARAMETERS.get(parm).clone())
+        self.set(parm, THE_DEFAULT_PARAMETERS.get(parm).clone())
             .unwrap();
     }
 
@@ -477,7 +482,7 @@ impl Parameters {
     }
 
     pub fn take(&mut self, parm: Parm) -> Value {
-        self.replace(parm, DEFAULT_PARAMETERS.get(parm).clone())
+        self.replace(parm, THE_DEFAULT_PARAMETERS.get(parm).clone())
             .unwrap()
     }
 
@@ -490,6 +495,20 @@ impl Parameters {
             }
         };
         self.set(parm, value)
+    }
+
+    pub fn is_default(&self, parm: Parm) -> bool {
+        let value = self.get(parm);
+        let default_value = THE_DEFAULT_PARAMETERS.get(parm);
+        match default_value {
+            Value::Bool(b) => value.bool_value() == Some(*b),
+            Value::Int(i) => value.int_value() == Some(*i),
+            Value::Str(s) => {
+                let left: &str = s;
+                let right: &str = &value.str_value();
+                left == right
+            }
+        }
     }
 
     pub fn boundary(&mut self) {
@@ -912,5 +931,16 @@ impl Validated<'_> {
             }
         }
         Ok(digits)
+    }
+}
+
+impl Parameters {
+    pub fn url_with_credentials(&self) -> ParmResult<String> {
+        url_from_parms(self, Parm::iter())
+    }
+
+    pub fn url_without_credentials(&self) -> ParmResult<String> {
+        let selection = Parm::iter().filter(|p| !p.is_sensitive());
+        url_from_parms(self, selection)
     }
 }

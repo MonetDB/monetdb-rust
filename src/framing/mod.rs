@@ -3,27 +3,48 @@ pub mod connecting;
 pub mod reading;
 pub mod writing;
 
-use std::{fmt, io, net::TcpStream, os::unix::net::UnixStream};
-
-use crate::IoError;
+use std::{error, fmt, io, net::TcpStream, os::unix::net::UnixStream};
 
 pub const BLOCKSIZE: usize = 8190;
 
 // pub use connecting::connect;
 
-#[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
-pub enum MapiError {
-    #[error("{0}")]
-    IO(#[from] IoError),
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum FramingError {
+    InvalidBlockSize,
+    Unicode,
+    TooLong,
 }
 
-pub type MapiResult<T> = Result<T, MapiError>;
-
-impl From<io::Error> for MapiError {
-    fn from(value: io::Error) -> Self {
-        IoError::from(value).into()
+impl FramingError {
+    fn to_str(&self) -> &'static str {
+        match self {
+            FramingError::InvalidBlockSize => {
+                "network layer: invalid block; network byte stream out of sync?"
+            }
+            FramingError::Unicode => {
+                "network layer: invalid utf-8 encoding, block was expected to contain text"
+            }
+            FramingError::TooLong => "network layer: message too long",
+        }
     }
 }
+
+impl fmt::Display for FramingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.to_str().fmt(f)
+    }
+}
+
+pub type FramingResult<T> = Result<T, FramingError>;
+
+impl From<FramingError> for io::Error {
+    fn from(value: FramingError) -> Self {
+        io::Error::new(io::ErrorKind::InvalidData, value.to_str())
+    }
+}
+
+impl error::Error for FramingError {}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ServerState {

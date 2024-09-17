@@ -146,6 +146,13 @@ impl Verifier {
     }
 
     #[track_caller]
+    pub fn assert(&mut self, data: &[u8]) {
+        if let Err(msg) = self.verify(data) {
+            panic!("{msg}")
+        }
+    }
+
+    #[track_caller]
     pub fn assert_end(&self) {
         if let Err(msg) = self.verify_end() {
             panic!("{msg}")
