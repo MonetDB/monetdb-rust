@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 
-use std::{
-    result,
-    sync::{Arc, Mutex},
+use std::sync::{
+    atomic::{self, AtomicBool},
+    Arc, Mutex, TryLockError,
 };
 
 use crate::{
+    cursor::{Cursor, CursorError, CursorResult},
     framing::{
         connecting::{establish_connection, ConnResult},
         ServerSock, ServerState,
@@ -15,8 +16,9 @@ use crate::{
 
 pub struct Connection(Arc<Conn>);
 
-struct Conn {
+pub(crate) struct Conn {
     locked: Mutex<Locked>,
+    closing: AtomicBool,
 }
 
 struct Locked {
@@ -43,21 +45,46 @@ impl Connection {
         };
         let conn = Conn {
             locked: Mutex::new(locked),
+            closing: AtomicBool::new(false),
         };
         Connection(Arc::new(conn))
+    }
+
+    pub fn cursor(&self) -> Cursor {
+        Cursor::new(Arc::clone(&self.0))
+    }
+
+    pub fn close(self) {
+        drop(self);
+    }
+
+    fn close_connection(&mut self) {
+        let conn = self.0.as_ref();
+        conn.closing.store(true, atomic::Ordering::SeqCst);
+        match conn.locked.try_lock() {
+            Ok(mut locked) => locked.sock = None,
+            Err(TryLockError::Poisoned(mut poisoned)) => poisoned.get_mut().sock = None,
+            Err(TryLockError::WouldBlock) => {}
+        }
+    }
+}
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.close_connection();
     }
 }
 
 impl Conn {
-    fn run_locked<F, T, E>(&self, f: F) -> Result<T, E>
+    pub(crate) fn run_locked<F, T>(&self, f: F) -> CursorResult<T>
     where
-        F: for<'x> FnOnce(ServerSock, &'x mut ServerState) -> result::Result<(ServerSock, T), E>,
+        F: for<'x> FnOnce(&'x mut ServerState, ServerSock) -> CursorResult<(ServerSock, T)>,
     {
         let mut guard = self.locked.lock().unwrap();
         let Some(sock) = guard.sock.take() else {
-            panic!("connection has been closed"); // this should really be an Error
+            return Err(CursorError::Closed);
         };
-        match f(sock, &mut guard.state) {
+        match f(&mut guard.state, sock) {
             Ok((sock, value)) => {
                 guard.sock = Some(sock);
                 Ok(value)

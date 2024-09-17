@@ -85,7 +85,7 @@ impl MapiBuf {
         self.finish_block(true);
     }
 
-    fn reset(&mut self) -> &[u8] {
+    pub fn reset(&mut self) -> &[u8] {
         let raw_base = self.buffer.as_ptr();
         let mut raw_len = self.buffer.len();
         if self.block_left == BLOCKSIZE {
