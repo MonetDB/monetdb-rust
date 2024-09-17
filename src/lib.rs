@@ -3,6 +3,7 @@ use std::{error, fmt, io};
 #[macro_use]
 pub mod our_logger;
 
+pub mod conn;
 pub mod framing;
 pub mod parms;
 pub mod util;

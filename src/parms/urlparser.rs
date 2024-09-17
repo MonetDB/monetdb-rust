@@ -2,6 +2,12 @@ use super::*;
 
 use url::{Host, Url};
 
+pub fn is_our_url(url: &str) -> bool {
+    url.starts_with("monetdb://")
+        || url.starts_with("monetdbs://")
+        || url.starts_with("mapi:monetdb://")
+}
+
 pub fn parse_any_url(parms: &mut Parameters, url: &str) -> ParmResult<()> {
     if url.starts_with("monetdb://") {
         parse_monetdb_url(parms, false, url)

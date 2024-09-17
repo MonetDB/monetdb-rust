@@ -7,8 +7,6 @@ use std::{error, fmt, io, net::TcpStream, os::unix::net::UnixStream};
 
 pub const BLOCKSIZE: usize = 8190;
 
-// pub use connecting::connect;
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum FramingError {
     InvalidBlockSize,
@@ -57,7 +55,7 @@ impl Default for ServerState {
     }
 }
 
-trait ServerSockTrait: fmt::Debug + io::Read + io::Write + 'static {}
+trait ServerSockTrait: fmt::Debug + io::Read + io::Write + Send + 'static {}
 
 impl ServerSockTrait for UnixStream {}
 

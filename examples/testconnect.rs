@@ -3,7 +3,7 @@ use std::env;
 use anyhow::{bail, Result as AResult};
 use log::info;
 
-use monetdb::parms::Parameters;
+use monetdb::{conn::Connection, parms::Parameters};
 
 fn main() -> AResult<()> {
     configure_logging()?;
@@ -15,8 +15,8 @@ fn main() -> AResult<()> {
         bail!("Usage: connect URL");
     };
     parms.apply_url(&url)?;
-    let (_sock, state) = monetdb::framing::connecting::lalaconnect(parms)?;
-    info!("connected: {state:?}");
+    let _conn = Connection::new(parms)?;
+    info!("connected.");
     Ok(())
 }
 

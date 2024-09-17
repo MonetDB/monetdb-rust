@@ -40,7 +40,7 @@ pub enum ConnectError {
     UnexpectedResponse(String),
 }
 
-type ConnResult<T> = Result<T, ConnectError>;
+pub type ConnResult<T> = Result<T, ConnectError>;
 
 impl From<io::Error> for ConnectError {
     fn from(value: io::Error) -> Self {
@@ -147,7 +147,7 @@ enum Login {
     Complete(ServerSock, ServerState),
 }
 
-pub fn lalaconnect(mut parms: Parameters) -> ConnResult<(ServerSock, ServerState)> {
+pub fn establish_connection(mut parms: Parameters) -> ConnResult<(ServerSock, ServerState)> {
     'redirect: for _ in 0..10 {
         let validated = parms.validate()?;
         if log_enabled!(log::Level::Debug) {
@@ -197,7 +197,7 @@ fn login(parms: &Validated, sock: ServerSock) -> ConnResult<Login> {
     server_message.clear();
     let sock = MapiReader::to_limited_string(sock, &mut server_message, 5000)?;
 
-    // process the server response
+    // process the server
     process_redirects(sock, state, &server_message)
 }
 

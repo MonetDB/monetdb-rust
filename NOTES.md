@@ -23,8 +23,8 @@ test mapi incomplete reads and writes
 
 prehashed passwords
 
-non-local redirects
-
 default time zone
 
 tls
+
+make less things pub

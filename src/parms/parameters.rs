@@ -1,7 +1,7 @@
 use array_macro::array;
 use std::mem;
 
-use urlparser::{parse_any_url, url_from_parms};
+use urlparser::{is_our_url, parse_any_url, url_from_parms};
 
 use super::*;
 
@@ -423,11 +423,20 @@ const fn default_parameter_value_by_index(idx: usize) -> Value {
 
 impl Parameters {
     pub fn basic(database: &str, user: &str, password: &str) -> ParmResult<Parameters> {
-        let mut parms = Parameters::default();
         use Parm::*;
-        parms.set(Database, database)?;
-        parms.set(User, user)?;
-        parms.set(Password, password)?;
+        let mut parms = Parameters::default();
+        if is_our_url(database) {
+            parms.apply_url(database)?;
+        } else {
+            parms.set(Database, database)?;
+        }
+        if !user.is_empty() {
+            parms.set(User, user)?;
+        }
+        if !password.is_empty() {
+            parms.set(Password, password)?;
+        }
+        parms.boundary();
         Ok(parms)
     }
 
