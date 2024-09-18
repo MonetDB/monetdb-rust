@@ -9,6 +9,8 @@ use crate::{framing::FramingError, IoError};
 
 #[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
 pub enum CursorError {
+    #[error("server: {0}")]
+    Server(String),
     #[error("connection has been closed")]
     Closed,
     #[error(transparent)]
@@ -41,20 +43,40 @@ impl Cursor {
     }
 
     pub fn execute(&mut self, statements: &str) -> CursorResult<&str> {
-        self.replies.clear();
-        self.buf.append("s");
-        self.buf.append(statements);
-        self.buf.append("\n;1");
         let () = self.conn.run_locked(|_state, mut sock| {
-            self.replies.truncate(0);
-            sock = self.buf.write_reset(sock)?;
+            self.replies.clear();
+            sock = self.buf.write_reset_plus(sock, &[b"s", statements.as_bytes(), b"\n;"])?;
             sock = MapiReader::to_end(sock, &mut self.replies)?;
             Ok((sock, ()))
         })?;
 
-        match std::str::from_utf8(&self.replies) {
-            Ok(s) => Ok(s),
-            Err(_) => Err(FramingError::Unicode.into()),
+        // Quickly check for errors.
+        if let Some(idx) = find_response_line(b'!', &self.replies) {
+            let error_line = self.replies[idx + 1..].split(|&b| b == b'\n').next().unwrap();
+            let message = from_utf8(error_line)?;
+            return Err(CursorError::Server(message.to_string()));
         }
+
+        from_utf8(&self.replies)
+    }
+}
+
+fn find_response_line(marker: u8, response: &[u8]) -> Option<usize> {
+    if response.is_empty() {
+        None
+    } else if response[0] == marker {
+        Some(0)
+    } else if let Some(idx) = memchr::memmem::find(response, &[b'\n', marker]) {
+        Some(idx + 1)
+    } else {
+        None
+    }
+}
+
+
+pub fn from_utf8(bytes: &[u8]) -> CursorResult<&str> {
+    match std::str::from_utf8(bytes) {
+        Ok(s) => Ok(s),
+        Err(_) => Err(FramingError::Unicode.into()),
     }
 }
