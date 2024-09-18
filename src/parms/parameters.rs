@@ -661,11 +661,11 @@ impl Parameters {
         Ok(self)
     }
 
-    pub fn set_replysize(&mut self, value: &str) -> ParmResult<()> {
-        self.set(Parm::ReplySize, value)
+    pub fn set_replysize(&mut self, value: impl Into<i64>) -> ParmResult<()> {
+        self.set(Parm::ReplySize, value.into())
     }
 
-    pub fn with_replysize(mut self, value: &str) -> ParmResult<Parameters> {
+    pub fn with_replysize(mut self, value: i64) -> ParmResult<Parameters> {
         self.set_replysize(value)?;
         Ok(self)
     }

@@ -11,9 +11,9 @@ use crate::{framing::FramingError, IoError};
 pub enum CursorError {
     #[error("connection has been closed")]
     Closed,
-    #[error("{0}")]
+    #[error(transparent)]
     IO(#[from] IoError),
-    #[error("{0}")]
+    #[error(transparent)]
     Framing(#[from] FramingError),
 }
 

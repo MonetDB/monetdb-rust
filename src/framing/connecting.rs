@@ -20,9 +20,9 @@ use super::{ServerSock, ServerState};
 
 #[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
 pub enum ConnectError {
-    #[error("{0}")]
+    #[error(transparent)]
     Parm(#[from] ParmError),
-    #[error("{0}")]
+    #[error(transparent)]
     IO(#[from] IoError),
     #[error("invalid utf-8 sequence")]
     UTF(#[from] Utf8Error),

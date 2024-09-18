@@ -28,3 +28,5 @@ default time zone
 tls
 
 make less things pub
+
+connect parameters
