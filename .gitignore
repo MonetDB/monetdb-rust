@@ -7,4 +7,5 @@ Cargo.lock
 /adhoctest.md
 
 /.vscode/
+/venv/
 /target
