@@ -158,7 +158,7 @@ impl State {
             "connect_certhash_digits" => Ok(validated?.connect_certhash_digits.into()),
             "connect_clientkey" => Ok(validated?.connect_clientkey.into()),
             "connect_clientcert" => Ok(validated?.connect_clientcert.into()),
-            "connect_timezone" => Ok(validated?.connect_timezone.into()),
+            "connect_timezone" => Ok(validated?.connect_timezone_seconds.unwrap_or(42).into()),
             "connect_binary" => Ok(validated?.connect_binary.into()),
             _ => fail!("unknown key: {key}"),
         }

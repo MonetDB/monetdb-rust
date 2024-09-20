@@ -726,7 +726,7 @@ pub struct Validated<'a> {
     pub language: Cow<'a, str>,
     pub replysize: i64,
     pub schema: Cow<'a, str>,
-    pub connect_timezone: i64,
+    pub connect_timezone_seconds: Option<i32>,
     pub connect_scan: bool,
     pub connect_unix: Cow<'a, str>,
     pub connect_tcp: Cow<'a, str>,
@@ -877,10 +877,10 @@ impl Validated<'_> {
             connect_clientkey.clone()
         };
 
-        let connect_timezone = if parms.timezone_set {
-            raw_timezone
+        let connect_timezone_seconds = if parms.timezone_set {
+            Some(raw_timezone as i32 * 60)
         } else {
-            42 // default timezone
+            None
         };
 
         // Construct object
@@ -903,7 +903,7 @@ impl Validated<'_> {
             connect_certhash_digits,
             connect_clientkey,
             connect_clientcert,
-            connect_timezone,
+            connect_timezone_seconds,
             connect_binary,
         };
 

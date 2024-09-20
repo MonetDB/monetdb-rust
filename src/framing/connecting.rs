@@ -32,6 +32,8 @@ pub enum ConnectError {
     UnsupportedHashAlgo(String),
     #[error("TLS (monetdbs://) has not been enabled")]
     TlsNotSupported,
+    #[error("only language=sql is supported")]
+    OnlySqlSupported,
     #[error("too many redirects")]
     TooManyRedirects,
     #[error("login rejected: {0}")]
@@ -251,7 +253,63 @@ fn challenge_response(
     )
     .unwrap();
 
-    let state = ServerState::default();
+    let mut state = ServerState::default();
+
+    if parms.language == "sql" {
+        // Append handshake options to the response, numbers based on enum
+        // mapi_handshake_options_levels in mapi.h
+
+        let mut sep = "";
+        let mut set_option = |key: &str, default_value: i64, value: i64| {
+            if value != default_value {
+                write!(response, "{sep}{key}={value}").unwrap();
+                sep = ",";
+            }
+        };
+        let support_limit = chal.sql_handshake_option_level;
+        // MAPI_HANDSHAKE_AUTOCOMMIT = 1,
+        if 1 < support_limit {
+            set_option(
+                "auto_commit",
+                state.initial_auto_commit as i64,
+                parms.autocommit as i64,
+            );
+            state.initial_auto_commit = parms.autocommit;
+        }
+        // MAPI_HANDSHAKE_REPLY_SIZE = 2,
+        if 2 < support_limit {
+            set_option("reply_size", state.reply_size, parms.replysize);
+            state.reply_size = parms.replysize;
+        }
+        // MAPI_HANDSHAKE_SIZE_HEADER = 3,
+        if 3 < support_limit {
+            set_option("size_header", 1, 0);
+            // chosen by us, not the user, so it never changes
+        }
+        // MAPI_HANDSHAKE_COLUMNAR_PROTOCOL = 4,
+        // (skip this)
+        // MAPI_HANDSHAKE_TIME_ZONE = 5,
+        if 5 < support_limit {
+            let seconds_east = if let Some(tz) = parms.connect_timezone_seconds {
+                tz
+            } else {
+                // We use jiff to obtaining the local time zone offset. Overkill?
+                let now = jiff::Timestamp::now();
+                let tz = jiff::tz::TimeZone::system();
+                let (offset, _, _) = tz.to_offset(now);
+                offset.seconds()
+            };
+            set_option(
+                "time_zone",
+                state.time_zone_seconds as i64,
+                seconds_east as i64,
+            );
+            state.time_zone_seconds = seconds_east;
+        }
+    }
+
+    response.push(':'); // after the handshake options
+
     Ok(state)
 }
 
