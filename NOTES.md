@@ -30,3 +30,5 @@ tls
 make less things pub
 
 connect parameters
+
+deal with unclosed START TRANSACTION when autocommit=True

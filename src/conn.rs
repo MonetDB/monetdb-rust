@@ -76,18 +76,18 @@ impl Drop for Connection {
 }
 
 impl Conn {
-    pub(crate) fn run_locked<F, T>(&self, f: F) -> CursorResult<T>
+    pub(crate) fn run_locked<F>(&self, f: F) -> CursorResult<()>
     where
-        F: for<'x> FnOnce(&'x mut ServerState, ServerSock) -> CursorResult<(ServerSock, T)>,
+        F: for<'x> FnOnce(&'x mut ServerState, ServerSock) -> CursorResult<ServerSock>,
     {
         let mut guard = self.locked.lock().unwrap();
         let Some(sock) = guard.sock.take() else {
             return Err(CursorError::Closed);
         };
         match f(&mut guard.state, sock) {
-            Ok((sock, value)) => {
+            Ok(sock) => {
                 guard.sock = Some(sock);
-                Ok(value)
+                Ok(())
             }
             Err(e) => Err(e),
         }

@@ -46,12 +46,16 @@ impl error::Error for FramingError {}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ServerState {
+    pub auto_commit: bool,
     pub reply_size: i64,
 }
 
 impl Default for ServerState {
     fn default() -> Self {
-        Self { reply_size: 100 }
+        Self {
+            auto_commit: true,
+            reply_size: 100,
+        }
     }
 }
 

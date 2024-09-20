@@ -1,15 +1,21 @@
 #![allow(dead_code)]
 
+pub mod replies;
+
+use std::mem;
 use std::{io, sync::Arc};
+
+use replies::{BadReply, ReplyParser};
 
 use crate::conn::Conn;
 use crate::framing::reading::MapiReader;
 use crate::framing::writing::MapiBuf;
+use crate::framing::{ServerSock, ServerState};
 use crate::{framing::FramingError, IoError};
 
 #[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
 pub enum CursorError {
-    #[error("server: {0}")]
+    #[error("{0}")]
     Server(String),
     #[error("connection has been closed")]
     Closed,
@@ -17,6 +23,8 @@ pub enum CursorError {
     IO(#[from] IoError),
     #[error(transparent)]
     Framing(#[from] FramingError),
+    #[error(transparent)]
+    BadReply(#[from] BadReply),
 }
 
 pub type CursorResult<T> = Result<T, CursorError>;
@@ -30,7 +38,7 @@ impl From<io::Error> for CursorError {
 pub struct Cursor {
     conn: Arc<Conn>,
     buf: MapiBuf,
-    replies: Vec<u8>,
+    replies: ReplyParser,
 }
 
 impl Cursor {
@@ -38,26 +46,72 @@ impl Cursor {
         Cursor {
             conn,
             buf: MapiBuf::new(),
-            replies: Vec::default(),
+            replies: ReplyParser::default(),
         }
     }
 
-    pub fn execute(&mut self, statements: &str) -> CursorResult<&str> {
-        let () = self.conn.run_locked(|_state, mut sock| {
-            self.replies.clear();
-            sock = self.buf.write_reset_plus(sock, &[b"s", statements.as_bytes(), b"\n;"])?;
-            sock = MapiReader::to_end(sock, &mut self.replies)?;
-            Ok((sock, ()))
-        })?;
+    pub fn execute(&mut self, statements: &str) -> CursorResult<()> {
+        self.exhaust()?;
 
-        // Quickly check for errors.
-        if let Some(idx) = find_response_line(b'!', &self.replies) {
-            let error_line = self.replies[idx + 1..].split(|&b| b == b'\n').next().unwrap();
-            let message = from_utf8(error_line)?;
-            return Err(CursorError::Server(message.to_string()));
+        let mut vec = self.replies.take_buffer();
+
+        self.conn.run_locked(
+            |_state: &mut ServerState, mut sock: ServerSock| -> CursorResult<ServerSock> {
+                let command = &[b"s", statements.as_bytes(), b"\n;"];
+                sock = self.buf.write_reset_plus(sock, command)?;
+                sock = MapiReader::to_end(sock, &mut vec)?;
+                Ok(sock)
+            },
+        )?;
+
+        let error =
+            ReplyParser::detect_errors(&vec).map(|msg| CursorError::Server(msg.to_string()));
+
+        // Always create and install a replyparser, even if an error occurred.
+        // We need to make sure all result sets are being released etc.
+        self.replies = ReplyParser::new(vec)?;
+
+        if let Some(err) = error {
+            self.exhaust()?;
+            return Err(err);
         }
 
-        from_utf8(&self.replies)
+        Ok(())
+    }
+
+    pub fn affected_rows(&self) -> Option<i64> {
+        self.replies.affected_rows()
+    }
+
+    pub fn has_result_set(&self) -> bool {
+        self.replies.at_result_set()
+    }
+
+    pub fn temporary_get_result_set(&self) -> CursorResult<Option<&str>> {
+        let x = self.replies.remaining_rows()?;
+        Ok(x)
+    }
+
+    pub fn next_reply(&mut self) -> CursorResult<bool> {
+        // todo: close server side result set if necessary
+        let old = mem::take(&mut self.replies);
+        let new = old.into_next_reply()?;
+        self.switch_to_reply(new)
+    }
+
+    fn switch_to_reply(&mut self, replies: ReplyParser) -> CursorResult<bool> {
+        self.replies = replies;
+        let have_next = !matches!(self.replies, ReplyParser::Exhausted(..));
+        Ok(have_next)
+    }
+
+    fn exhaust(&mut self) -> CursorResult<()> {
+        loop {
+            if let ReplyParser::Exhausted(..) = self.replies {
+                return Ok(());
+            }
+            self.next_reply()?;
+        }
     }
 }
 
@@ -66,13 +120,10 @@ fn find_response_line(marker: u8, response: &[u8]) -> Option<usize> {
         None
     } else if response[0] == marker {
         Some(0)
-    } else if let Some(idx) = memchr::memmem::find(response, &[b'\n', marker]) {
-        Some(idx + 1)
     } else {
-        None
+        memchr::memmem::find(response, &[b'\n', marker]).map(|idx| idx + 1)
     }
 }
-
 
 pub fn from_utf8(bytes: &[u8]) -> CursorResult<&str> {
     match std::str::from_utf8(bytes) {
