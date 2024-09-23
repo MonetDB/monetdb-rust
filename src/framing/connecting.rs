@@ -10,10 +10,7 @@ use std::{
 };
 
 use crate::{
-    framing::{reading::MapiReader, writing::MapiBuf},
-    parms::{Parameters, ParmError, Validated},
-    util::hash_algorithms,
-    IoError,
+    cursor::delayed::DelayedCommands, framing::{reading::MapiReader, writing::MapiBuf}, parms::{Parameters, ParmError, Validated}, util::hash_algorithms, IoError
 };
 
 use super::{ServerSock, ServerState};
@@ -149,7 +146,7 @@ enum Login {
     Complete(ServerSock, ServerState),
 }
 
-pub fn establish_connection(mut parms: Parameters) -> ConnResult<(ServerSock, ServerState)> {
+pub fn establish_connection(mut parms: Parameters) -> ConnResult<(ServerSock, ServerState, DelayedCommands)> {
     'redirect: for _ in 0..10 {
         let validated = parms.validate()?;
         if log_enabled!(log::Level::Debug) {
@@ -159,9 +156,15 @@ pub fn establish_connection(mut parms: Parameters) -> ConnResult<(ServerSock, Se
         }
         let mut sock = connect_socket(&validated)?;
         'restart: loop {
-            match login(&validated, sock)? {
+            let (login, mut delayed) = login(&validated, sock)?;
+            match login {
                 Login::Complete(sock, state) => {
-                    return Ok((sock, state));
+                    // Send the delayed commands, do not wait to receive the
+                    // reply, we will do that later
+                    return match delayed.send_delayed(sock) {
+                        Ok(sock) => Ok((sock, state, delayed)),
+                        Err(e) => Err(ConnectError::Rejected(e.to_string())),
+                    }
                 }
                 Login::Redirect(url) => {
                     debug!("redirected to {url}");
@@ -179,7 +182,7 @@ pub fn establish_connection(mut parms: Parameters) -> ConnResult<(ServerSock, Se
     Err(ConnectError::TooManyRedirects)
 }
 
-fn login(parms: &Validated, sock: ServerSock) -> ConnResult<Login> {
+fn login(parms: &Validated, sock: ServerSock) -> ConnResult<(Login, DelayedCommands)> {
     let mut server_message = String::with_capacity(1000);
     let mut mbuf = MapiBuf::new();
 
@@ -189,7 +192,7 @@ fn login(parms: &Validated, sock: ServerSock) -> ConnResult<Login> {
     // determine the response
     let chal = Challenge::new(&server_message)?;
     let mut response = String::with_capacity(500);
-    let state = challenge_response(parms, &chal, &mut response)?;
+    let (state, delayed) = challenge_response(parms, &chal, &mut response)?;
 
     // send the response
     mbuf.append(response);
@@ -200,14 +203,15 @@ fn login(parms: &Validated, sock: ServerSock) -> ConnResult<Login> {
     let sock = MapiReader::to_limited_string(sock, &mut server_message, 5000)?;
 
     // process the server
-    process_redirects(sock, state, &server_message)
+    let login = process_redirects(sock, state, &server_message)?;
+    Ok((login, delayed))
 }
 
 fn challenge_response(
     parms: &Validated,
     chal: &Challenge,
     response: &mut String,
-) -> ConnResult<ServerState> {
+) -> ConnResult<(ServerState, DelayedCommands)> {
     use fmt::Write;
 
     let my_endian = Endian::NATIVE;
@@ -254,63 +258,73 @@ fn challenge_response(
     .unwrap();
 
     let mut state = ServerState::default();
+    let mut delayed = DelayedCommands::new();
 
     if parms.language == "sql" {
         // Append handshake options to the response, numbers based on enum
         // mapi_handshake_options_levels in mapi.h
 
+        let support_limit = chal.sql_handshake_option_level;
         let mut sep = "";
-        let mut set_option = |key: &str, default_value: i64, value: i64| {
-            if value != default_value {
+
+        let mut arrange = |lvl: u8, key: &str, value: i64, cmd: fmt::Arguments| {
+            if lvl < support_limit {
+                // use a handshake option
                 write!(response, "{sep}{key}={value}").unwrap();
                 sep = ",";
+            } else {
+                // use a (delayed) command
+                delayed.add(cmd.to_string());
             }
         };
-        let support_limit = chal.sql_handshake_option_level;
+
         // MAPI_HANDSHAKE_AUTOCOMMIT = 1,
-        if 1 < support_limit {
-            set_option(
-                "auto_commit",
-                state.initial_auto_commit as i64,
-                parms.autocommit as i64,
-            );
+        if state.initial_auto_commit != parms.autocommit {
+            let v = parms.autocommit as i64;
+            arrange(1, "auto_commit", v, format_args!("Xauto_commit {v}"));
             state.initial_auto_commit = parms.autocommit;
         }
+
         // MAPI_HANDSHAKE_REPLY_SIZE = 2,
-        if 2 < support_limit {
-            set_option("reply_size", state.reply_size, parms.replysize);
+        if state.reply_size != parms.replysize {
+            let v = parms.replysize;
+            arrange(2, "reply_size", v, format_args!("Xreply_size {v}"));
             state.reply_size = parms.replysize;
         }
+
         // MAPI_HANDSHAKE_SIZE_HEADER = 3,
-        if 3 < support_limit {
-            set_option("size_header", 1, 0);
-            // chosen by us, not the user, so it never changes
-        }
+        // always enabled. note: Xcommand has no underscore
+        arrange(3, "size_header", 1, format_args!("Xsizeheader 1"));
+
         // MAPI_HANDSHAKE_COLUMNAR_PROTOCOL = 4,
-        // (skip this)
+        // (do not enable that)
+
         // MAPI_HANDSHAKE_TIME_ZONE = 5,
-        if 5 < support_limit {
-            let seconds_east = if let Some(tz) = parms.connect_timezone_seconds {
-                tz
-            } else {
-                // We use jiff to obtaining the local time zone offset. Overkill?
-                let now = jiff::Timestamp::now();
-                let tz = jiff::tz::TimeZone::system();
-                let (offset, _, _) = tz.to_offset(now);
-                offset.seconds()
-            };
-            set_option(
-                "time_zone",
-                state.time_zone_seconds as i64,
-                seconds_east as i64,
-            );
+        let seconds_east = if let Some(tz) = parms.connect_timezone_seconds {
+            tz
+        } else {
+            // We use jiff to obtaining the local time zone offset. Overkill?
+            let now = jiff::Timestamp::now();
+            let tz = jiff::tz::TimeZone::system();
+            let (offset, _, _) = tz.to_offset(now);
+            offset.seconds()
+        };
+        if state.time_zone_seconds != seconds_east {
+            let mins = seconds_east / 60;
+            let sign = if mins < 0 { '-' } else { '+' };
+            let a = mins.abs();
+            let h = a / 60;
+            let m = a % 60;
+            arrange(
+                5, "time_zone", seconds_east as i64, 
+                format_args!("sSET TIME ZONE INTERVAL '{sign}{h:02}:{m:02}' HOUR TO MINUTE;"));
             state.time_zone_seconds = seconds_east;
         }
     }
 
     response.push(':'); // after the handshake options
 
-    Ok(state)
+    Ok((state, delayed))
 }
 
 fn process_redirects(sock: ServerSock, state: ServerState, reply: &str) -> ConnResult<Login> {

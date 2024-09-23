@@ -6,7 +6,7 @@ use std::sync::{
 };
 
 use crate::{
-    cursor::{Cursor, CursorError, CursorResult},
+    cursor::{delayed::DelayedCommands, Cursor, CursorError, CursorResult},
     framing::{
         connecting::{establish_connection, ConnResult},
         ServerSock, ServerState,
@@ -24,12 +24,13 @@ pub(crate) struct Conn {
 struct Locked {
     state: ServerState,
     sock: Option<ServerSock>,
+    delayed: DelayedCommands,
 }
 
 impl Connection {
     pub fn new(parameters: Parameters) -> ConnResult<Connection> {
-        let (sock, state) = establish_connection(parameters)?;
-        let connection = Self::from_parts(sock, state);
+        let (sock, state, delayed) = establish_connection(parameters)?;
+        let connection = Self::from_parts(sock, state, delayed);
         Ok(connection)
     }
 
@@ -38,10 +39,11 @@ impl Connection {
         Self::new(parms)
     }
 
-    pub(crate) fn from_parts(sock: ServerSock, state: ServerState) -> Self {
+    pub(crate) fn from_parts(sock: ServerSock, state: ServerState, delayed: DelayedCommands) -> Self {
         let locked = Locked {
             state,
             sock: Some(sock),
+            delayed,
         };
         let conn = Conn {
             locked: Mutex::new(locked),
@@ -78,13 +80,14 @@ impl Drop for Connection {
 impl Conn {
     pub(crate) fn run_locked<F>(&self, f: F) -> CursorResult<()>
     where
-        F: for<'x> FnOnce(&'x mut ServerState, ServerSock) -> CursorResult<ServerSock>,
+        F: for<'x> FnOnce(&'x mut ServerState, &'x mut DelayedCommands, ServerSock) -> CursorResult<ServerSock>,
     {
         let mut guard = self.locked.lock().unwrap();
         let Some(sock) = guard.sock.take() else {
             return Err(CursorError::Closed);
         };
-        match f(&mut guard.state, sock) {
+        let Locked { state, delayed, .. } = &mut *guard;
+        match f(state, delayed, sock) {
             Ok(sock) => {
                 guard.sock = Some(sock);
                 Ok(())
