@@ -32,3 +32,7 @@ make less things pub
 connect parameters
 
 deal with unclosed START TRANSACTION when autocommit=True
+
+scroll
+
+expose fewer pub items

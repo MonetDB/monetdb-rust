@@ -43,8 +43,10 @@ fn main() -> AResult<()> {
         loop {
             if let Some(count) = cursor.affected_rows() {
                 if cursor.has_result_set() {
+                    let md = cursor.metadata();
+                    let ncols = md.len();
+                    println!("RESULT, {count} rows, {ncols} cols: {md:?}");
                     let rs = cursor.temporary_get_result_set()?.unwrap().trim_end();
-                    println!("RESULT, {count} rows");
                     println!("{rs}")
                 } else {
                     println!("OK, {count} affected rows");

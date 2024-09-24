@@ -1,14 +1,14 @@
 #![allow(dead_code)]
 
-use std::{mem, str::FromStr};
+use std::{error, iter, mem, str::FromStr};
 
-use bstr::{BString, ByteSlice};
+use bstr::{BStr, BString, ByteSlice};
 use memchr::memmem;
+
+use crate::monettypes::MonetType;
 
 #[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
 pub enum BadReply {
-    #[error("boo")]
-    Boo,
     #[error("invalid utf-8 encoding in {0}")]
     Unicode(&'static str),
     #[error("unknown server response: {0}")]
@@ -17,6 +17,12 @@ pub enum BadReply {
     SepNotFound(u8),
     #[error("invalid reply header: {0}")]
     InvalidHeader(String),
+    #[error("unexpected reply header: {0}")]
+    UnexpectedHeader(BString),
+    #[error("unexpected end of server response")]
+    UnexpectedEnd,
+    #[error("too many columns in result set: {0}")]
+    TooManyColumns(u64),
 }
 
 pub type RResult<T> = Result<T, BadReply>;
@@ -78,10 +84,14 @@ impl ReplyBuf {
 
     pub fn split(&mut self, sep: u8) -> RResult<&'_ mut [u8]> {
         let Some(end) = self.find(sep) else {
-            return Err(BadReply::SepNotFound(sep));
+            if self.is_empty() {
+                return Err(BadReply::UnexpectedEnd);
+            } else {
+                return Err(BadReply::SepNotFound(sep));
+            }
         };
         let ret = self.consume(end + 1);
-        Ok(&mut ret[..end - 1])
+        Ok(&mut ret[..end])
     }
 
     pub fn split_str(&mut self, sep: u8, context: &'static str) -> RResult<&str> {
@@ -103,7 +113,7 @@ pub enum ReplyParser {
         result_id: u64,
         cur_row: u64,
         nrows: u64,
-        ncols: usize,
+        columns: Vec<ResultColumn>,
         reply_size: u64,
         byte_size: usize,
     },
@@ -275,22 +285,132 @@ impl ReplyParser {
     fn parse_data(mut buf: ReplyBuf) -> RResult<ReplyParser> {
         let mut fields = [0; 4];
         Self::parse_header(&mut buf, &mut fields)?;
-        let byte_size = if let Some((pos, _)) = buf.find2(b'&', b'!') {
+        let [result_id, nrows, ncols, reply_size] = fields;
+        if ncols > usize::MAX as u64 {
+            return Err(BadReply::TooManyColumns(ncols));
+        }
+        let ncols = ncols as usize;
+        let mut columns: Vec<ResultColumn> =
+            iter::repeat(ResultColumn::empty()).take(ncols).collect();
+
+        // parse the table_name header
+        Self::parse_data_header(&mut buf, "table_name", &mut columns, &|col, s| {
+            col.name.push_str(s);
+            Ok(())
+        })?;
+
+        // parse the name header
+        Self::parse_data_header(&mut buf, "name", &mut columns, &|col, s| {
+            col.name.push('.');
+            col.name.push_str(s);
+            Ok(())
+        })?;
+
+        // parse the type header
+        Self::parse_data_header(&mut buf, "type", &mut columns, &|col, s| {
+            let Some(typ) = MonetType::prototype(s) else {
+                return Err(format!("unknown column type: {s}").into());
+            };
+            col.typ = typ;
+            Ok(())
+        })?;
+
+        // parse the length header
+        Self::parse_data_header(&mut buf, "length", &mut columns, &|col, s| {
+            if let MonetType::Varchar(n) = &mut col.typ {
+                *n = u32::from_str(s)?
+            };
+            Ok(())
+        })?;
+
+        // parse the typesizes header
+        Self::parse_data_header(&mut buf, "typesizes", &mut columns, &|col, s| {
+            if let MonetType::Decimal(precision, scale) = &mut col.typ {
+                let Some((pr, sc)) = s.split_once(' ') else {
+                    return Err("expect typesizes to be PRECISION <space> SCALE".into());
+                };
+                *precision = pr.parse()?;
+                *scale = sc.parse()?;
+            };
+            Ok(())
+        })?;
+
+        let bytes_to_end = if let Some((pos, _)) = buf.find2(b'&', b'!') {
             pos
         } else {
             buf.peek().len()
         };
         Ok(ReplyParser::Data {
             buf,
-            result_id: fields[0],
+            result_id,
             cur_row: 0,
-            nrows: fields[1],
-            ncols: fields[2] as usize,
-            reply_size: fields[3],
-            byte_size,
+            nrows,
+            columns,
+            reply_size,
+            byte_size: bytes_to_end,
         })
     }
+
+    fn parse_data_header<'a>(
+        buf: &'a mut ReplyBuf,
+        expected_kind: &str,
+        columns: &'a mut [ResultColumn],
+        f: ResultColumnUpdater<'_, 'a>,
+    ) -> RResult<()> {
+        let line: &[u8] = buf.split(b'\n')?;
+        let line = from_utf8("data header line", line)?;
+        let Some(line) = line.strip_prefix("% ") else {
+            return Err(BadReply::UnexpectedHeader(line.into()));
+        };
+        let Some((body, kind)) = line.split_once(" # ") else {
+            return Err(BadReply::InvalidHeader(
+                "expected '# ' in data header".into(),
+            ));
+        };
+        if kind != expected_kind {
+            return Err(BadReply::InvalidHeader(format!(
+                "expected '{expected_kind}' header, found {}",
+                BStr::new(kind)
+            )));
+        }
+
+        let mut columns = columns.iter_mut();
+        for (i, part) in body.split(",\t").enumerate() {
+            let Some(col) = columns.next() else {
+                return Err(BadReply::InvalidHeader(
+                    "too many columns in data header".into(),
+                ));
+            };
+            if let Err(e) = f(col, part) {
+                return Err(BadReply::InvalidHeader(format!("col {i}: {e}")));
+            }
+        }
+        if columns.next().is_some() {
+            return Err(BadReply::InvalidHeader(
+                "too few columns in data header".into(),
+            ));
+        }
+        Ok(())
+    }
 }
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct ResultColumn {
+    name: String,
+    typ: MonetType,
+}
+
+impl ResultColumn {
+    fn empty() -> Self {
+        ResultColumn {
+            name: "".into(),
+            typ: MonetType::Bool,
+        }
+    }
+}
+
+type ResultColumnUpdater<'x, 'a> =
+    &'x dyn Fn(&'a mut ResultColumn, &'a str) -> Result<(), Box<dyn error::Error>>;
 
 pub fn from_utf8<'a>(context: &'static str, bytes: &'a [u8]) -> RResult<&'a str> {
     match std::str::from_utf8(bytes) {

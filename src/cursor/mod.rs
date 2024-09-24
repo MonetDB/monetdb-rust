@@ -7,7 +7,7 @@ use std::mem;
 use std::{io, sync::Arc};
 
 use delayed::DelayedCommands;
-use replies::{BadReply, ReplyParser};
+use replies::{BadReply, ReplyParser, ResultColumn};
 
 use crate::conn::Conn;
 use crate::framing::reading::MapiReader;
@@ -118,6 +118,14 @@ impl Cursor {
                 return Ok(());
             }
             self.next_reply()?;
+        }
+    }
+
+    pub fn metadata(&self) -> &[ResultColumn] {
+        if let ReplyParser::Data { columns, .. } = &self.replies {
+            &columns[..]
+        } else {
+            &[]
         }
     }
 }

@@ -6,6 +6,7 @@ pub mod our_logger;
 pub mod conn;
 pub mod cursor;
 pub mod framing;
+pub mod monettypes;
 pub mod parms;
 pub mod util;
 
