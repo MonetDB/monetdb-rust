@@ -140,7 +140,7 @@ impl ReplyParser {
     pub fn affected_rows(&self) -> Option<i64> {
         match self {
             ReplyParser::Success { affected, .. } => *affected,
-            ReplyParser::Data { reply_size, .. } => Some(*reply_size as i64),
+            ReplyParser::Data { nrows, .. } => Some(*nrows as i64),
             _ => None,
         }
     }

@@ -42,11 +42,12 @@ fn main() -> AResult<()> {
         cursor.execute(&query)?;
         loop {
             if let Some(count) = cursor.affected_rows() {
-                println!("OK, {count} affected rows");
                 if cursor.has_result_set() {
                     let rs = cursor.temporary_get_result_set()?.unwrap().trim_end();
-                    println!("RESULT:");
+                    println!("RESULT, {count} rows");
                     println!("{rs}")
+                } else {
+                    println!("OK, {count} affected rows");
                 }
             } else {
                 println!("OK");
