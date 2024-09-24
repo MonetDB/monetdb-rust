@@ -14,6 +14,7 @@ use std::{
 };
 
 use gethostname;
+use time::UtcOffset;
 
 use crate::{
     cursor::delayed::{DelayedCommands, ExpectedResponse},
@@ -312,14 +313,12 @@ fn challenge_response(
         // (do not enable that)
 
         // MAPI_HANDSHAKE_TIME_ZONE = 5,
-        let seconds_east = if let Some(tz) = parms.connect_timezone_seconds {
-            tz
+        let seconds_east = if let Some(tz_seconds) = parms.connect_timezone_seconds {
+            tz_seconds
+        } else if let Ok(off) = UtcOffset::current_local_offset() {
+            off.whole_seconds()
         } else {
-            // We use jiff to obtaining the local time zone offset. Overkill?
-            let now = jiff::Timestamp::now();
-            let tz = jiff::tz::TimeZone::system();
-            let (offset, _, _) = tz.to_offset(now);
-            offset.seconds()
+            0
         };
         if state.time_zone_seconds != seconds_east {
             let mins = seconds_east / 60;
