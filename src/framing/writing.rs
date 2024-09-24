@@ -6,7 +6,7 @@
     unused_assignments
 )]
 
-use std::io;
+use std::{fmt, io};
 
 use super::{
     blockstate::{BlockState, Header},
@@ -115,6 +115,13 @@ impl MapiBuf {
             self.append(chunk);
         }
         self.write_reset(wr)
+    }
+}
+
+impl fmt::Write for MapiBuf {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.append(s);
+        Ok(())
     }
 }
 

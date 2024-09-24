@@ -58,7 +58,10 @@ impl Cursor {
         let mut vec = self.replies.take_buffer();
 
         self.conn.run_locked(
-            |_state: &mut ServerState, delayed: &mut DelayedCommands,  mut sock: ServerSock| -> CursorResult<ServerSock> {
+            |_state: &mut ServerState,
+             delayed: &mut DelayedCommands,
+             mut sock: ServerSock|
+             -> CursorResult<ServerSock> {
                 let command = &[b"s", statements.as_bytes(), b"\n;"];
                 sock = delayed.send_delayed_plus(sock, command)?;
                 sock = delayed.recv_delayed(sock, &mut vec)?;

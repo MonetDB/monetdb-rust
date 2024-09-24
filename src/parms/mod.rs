@@ -35,6 +35,8 @@ pub enum ParmError {
     ClientCertRequiresKey,
     #[error("parameter '{0}' is not allowed as query parameter")]
     NotAllowedAsQuery(Parm),
+    #[error("parameter: '{0}': must not contain newlines")]
+    ClientInfoNewline(Parm),
 }
 
 pub type ParmResult<T> = Result<T, ParmError>;

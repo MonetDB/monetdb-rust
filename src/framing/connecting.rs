@@ -3,14 +3,24 @@
 use core::{fmt, str};
 use std::{
     borrow::Cow,
+    env,
+    ffi::OsStr,
     io::{self, ErrorKind, Write},
     net::{TcpStream, ToSocketAddrs},
     os::unix::net::UnixStream,
+    path::PathBuf,
+    process,
     str::Utf8Error,
 };
 
+use gethostname;
+
 use crate::{
-    cursor::delayed::DelayedCommands, framing::{reading::MapiReader, writing::MapiBuf}, parms::{Parameters, ParmError, Validated}, util::hash_algorithms, IoError
+    cursor::delayed::{DelayedCommands, ExpectedResponse},
+    framing::{reading::MapiReader, writing::MapiBuf},
+    parms::{Parameters, ParmError, Validated},
+    util::hash_algorithms,
+    IoError,
 };
 
 use super::{ServerSock, ServerState};
@@ -146,7 +156,9 @@ enum Login {
     Complete(ServerSock, ServerState),
 }
 
-pub fn establish_connection(mut parms: Parameters) -> ConnResult<(ServerSock, ServerState, DelayedCommands)> {
+pub fn establish_connection(
+    mut parms: Parameters,
+) -> ConnResult<(ServerSock, ServerState, DelayedCommands)> {
     'redirect: for _ in 0..10 {
         let validated = parms.validate()?;
         if log_enabled!(log::Level::Debug) {
@@ -164,7 +176,7 @@ pub fn establish_connection(mut parms: Parameters) -> ConnResult<(ServerSock, Se
                     return match delayed.send_delayed(sock) {
                         Ok(sock) => Ok((sock, state, delayed)),
                         Err(e) => Err(ConnectError::Rejected(e.to_string())),
-                    }
+                    };
                 }
                 Login::Redirect(url) => {
                     debug!("redirected to {url}");
@@ -264,11 +276,11 @@ fn challenge_response(
         // Append handshake options to the response, numbers based on enum
         // mapi_handshake_options_levels in mapi.h
 
-        let support_limit = chal.sql_handshake_option_level;
+        let level_limit = chal.sql_handshake_option_level;
         let mut sep = "";
 
         let mut arrange = |lvl: u8, key: &str, value: i64, cmd: fmt::Arguments| {
-            if lvl < support_limit {
+            if lvl < level_limit {
                 // use a handshake option
                 write!(response, "{sep}{key}={value}").unwrap();
                 sep = ",";
@@ -316,13 +328,35 @@ fn challenge_response(
             let h = a / 60;
             let m = a % 60;
             arrange(
-                5, "time_zone", seconds_east as i64, 
-                format_args!("sSET TIME ZONE INTERVAL '{sign}{h:02}:{m:02}' HOUR TO MINUTE;"));
+                5,
+                "time_zone",
+                seconds_east as i64,
+                format_args!("sSET TIME ZONE INTERVAL '{sign}{h:02}:{m:02}' HOUR TO MINUTE;"),
+            );
             state.time_zone_seconds = seconds_east;
         }
     }
 
     response.push(':'); // after the handshake options
+
+    if chal.clientinfo && parms.client_info {
+        if parms.language == "sql" {
+            let mut info = ClientInfo::default();
+            if !parms.client_application.is_empty() {
+                info.application_name = Cow::Owned(parms.client_application.to_string());
+            }
+            if !parms.client_remark.is_empty() {
+                info.client_remark = Cow::Owned(parms.client_remark.to_string());
+            }
+            write!(delayed.buffer, "{}", SqlForm(&info)).unwrap();
+            delayed.buffer.end();
+            delayed.responses.push(ExpectedResponse {
+                description: "ClientInfo".to_string(),
+            });
+        } else if parms.language == "mal" || parms.language == "msql" {
+            todo!()
+        }
+    }
 
     Ok((state, delayed))
 }
@@ -454,5 +488,81 @@ impl<'a> Challenge<'a> {
             clientinfo,
         };
         Ok(challenge)
+    }
+}
+
+struct ClientInfo {
+    client_hostname: String,
+    application_name: Cow<'static, str>,
+    client_library: Cow<'static, str>,
+    client_remark: Cow<'static, str>,
+    client_pid: u32,
+}
+
+impl Default for ClientInfo {
+    fn default() -> Self {
+        let client_hostname = gethostname::gethostname().to_string_lossy().to_string();
+        let application_name = match env::args_os().next() {
+            None => "".into(),
+            Some(s) => {
+                let path = PathBuf::from(s);
+                let name = path.file_name().unwrap_or(OsStr::new(""));
+                name.to_string_lossy().to_string().into()
+            }
+        };
+        let client_library = concat!("monetdb-rs ", env!("CARGO_PKG_VERSION")).into();
+        let client_remark = "".into();
+        let client_pid = process::id();
+        Self {
+            client_hostname,
+            application_name,
+            client_library,
+            client_remark,
+            client_pid,
+        }
+    }
+}
+
+impl ClientInfo {
+    fn items(&self) -> impl Iterator<Item = (&str, &dyn fmt::Display)> {
+        let bla: [(&str, bool, &dyn fmt::Display); 5] = [
+            (
+                "ClientHostname",
+                !self.client_hostname.is_empty(),
+                &self.client_hostname,
+            ),
+            (
+                "ApplicationName",
+                !self.application_name.is_empty(),
+                &self.application_name,
+            ),
+            (
+                "ClientLibrary",
+                !self.client_library.is_empty(),
+                &self.client_library,
+            ),
+            (
+                "ClientRemark",
+                !self.client_remark.is_empty(),
+                &self.client_remark,
+            ),
+            ("ClientPid", true, &self.client_pid),
+        ];
+        bla.into_iter()
+            .filter(|(_, keep, _)| *keep)
+            .map(|(k, _, v)| (k, v))
+    }
+}
+
+struct SqlForm<'a>(&'a ClientInfo);
+
+impl fmt::Display for SqlForm<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut prefix = "Xclientinfo ";
+        for (k, v) in self.0.items() {
+            writeln!(f, "{prefix}{k}={v}")?;
+            prefix = "";
+        }
+        Ok(())
     }
 }

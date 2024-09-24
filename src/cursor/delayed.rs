@@ -43,7 +43,11 @@ impl DelayedCommands {
         Ok(conn)
     }
 
-    pub fn send_delayed_plus(&mut self, mut conn: ServerSock, extra: &[&[u8]]) -> CursorResult<ServerSock> {
+    pub fn send_delayed_plus(
+        &mut self,
+        mut conn: ServerSock,
+        extra: &[&[u8]],
+    ) -> CursorResult<ServerSock> {
         conn = self.buffer.write_reset_plus(conn, extra)?;
         Ok(conn)
     }

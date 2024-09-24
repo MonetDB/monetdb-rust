@@ -39,7 +39,11 @@ impl Connection {
         Self::new(parms)
     }
 
-    pub(crate) fn from_parts(sock: ServerSock, state: ServerState, delayed: DelayedCommands) -> Self {
+    pub(crate) fn from_parts(
+        sock: ServerSock,
+        state: ServerState,
+        delayed: DelayedCommands,
+    ) -> Self {
         let locked = Locked {
             state,
             sock: Some(sock),
@@ -80,7 +84,11 @@ impl Drop for Connection {
 impl Conn {
     pub(crate) fn run_locked<F>(&self, f: F) -> CursorResult<()>
     where
-        F: for<'x> FnOnce(&'x mut ServerState, &'x mut DelayedCommands, ServerSock) -> CursorResult<ServerSock>,
+        F: for<'x> FnOnce(
+            &'x mut ServerState,
+            &'x mut DelayedCommands,
+            ServerSock,
+        ) -> CursorResult<ServerSock>,
     {
         let mut guard = self.locked.lock().unwrap();
         let Some(sock) = guard.sock.take() else {

@@ -43,6 +43,14 @@ pub enum Parm {
     SockDir,
     Timezone,
 
+    // Specific to this crate
+    #[enumeration(rename = "client_info")]
+    ClientInfo,
+    #[enumeration(rename = "client_application")]
+    ClientApplication,
+    #[enumeration(rename = "client_remark")]
+    ClientRemark,
+
     // Unused but recognized to pass the tests
     TableSchema,
     Table,
@@ -73,6 +81,9 @@ impl Parm {
             Parm::Sock => "sock",
             Parm::SockDir => "sockdir",
             Parm::Timezone => "timezone",
+            Parm::ClientInfo => "client_info",
+            Parm::ClientApplication => "client_application",
+            Parm::ClientRemark => "client_remark",
             Parm::TableSchema => "tableschema",
             Parm::Table => "table",
             Parm::Hash => "hash",
@@ -112,7 +123,7 @@ impl Parm {
         use Parm::*;
         use ParmType::*;
         match self {
-            Tls | Autocommit => Bool,
+            Tls | Autocommit | ClientInfo => Bool,
             Port | ReplySize | Timezone | MaxPrefetch => Int,
             _ => Str,
         }
@@ -153,7 +164,12 @@ fn test_parm_names() {
     assert_eq!(Parm::from_str("sock"), Ok(Parm::Sock));
     assert_eq!(Parm::from_str("sockdir"), Ok(Parm::SockDir));
     assert_eq!(Parm::from_str("timezone"), Ok(Parm::Timezone));
-
+    assert_eq!(Parm::from_str("client_info"), Ok(Parm::ClientInfo));
+    assert_eq!(
+        Parm::from_str("client_application"),
+        Ok(Parm::ClientApplication)
+    );
+    assert_eq!(Parm::from_str("client_remark"), Ok(Parm::ClientRemark));
     // special case
     assert_eq!(Parm::from_str("fetchsize"), Ok(Parm::ReplySize));
 
@@ -352,7 +368,7 @@ impl From<usize> for Value {
     }
 }
 
-pub const PARM_TABLE_SIZE: usize = 24;
+pub const PARM_TABLE_SIZE: usize = 27;
 
 #[test]
 fn test_parm_table_size() {
@@ -416,6 +432,8 @@ const fn default_parameter_value_by_index(idx: usize) -> Value {
         Value::Int(200)
     } else if idx == Binary.index() {
         Value::from_static("on") // we can't yet, but we'd like to
+    } else if idx == ClientInfo.index() {
+        Value::Bool(true)
     } else {
         Value::from_static("")
     }
@@ -705,6 +723,33 @@ impl Parameters {
         self.set_timezone(value)?;
         Ok(self)
     }
+
+    pub fn set_client_info(&mut self, value: &str) -> ParmResult<()> {
+        self.set(Parm::ClientInfo, value)
+    }
+
+    pub fn with_client_info(mut self, value: &str) -> ParmResult<Parameters> {
+        self.set_client_info(value)?;
+        Ok(self)
+    }
+
+    pub fn set_client_application(&mut self, value: &str) -> ParmResult<()> {
+        self.set(Parm::ClientApplication, value)
+    }
+
+    pub fn with_client_application(mut self, value: &str) -> ParmResult<Parameters> {
+        self.set_client_application(value)?;
+        Ok(self)
+    }
+
+    pub fn set_client_remark(&mut self, value: &str) -> ParmResult<()> {
+        self.set(Parm::ClientRemark, value)
+    }
+
+    pub fn with_client_remark(mut self, value: &str) -> ParmResult<Parameters> {
+        self.set_client_remark(value)?;
+        Ok(self)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -726,6 +771,9 @@ pub struct Validated<'a> {
     pub language: Cow<'a, str>,
     pub replysize: i64,
     pub schema: Cow<'a, str>,
+    pub client_info: bool,
+    pub client_application: Cow<'a, str>,
+    pub client_remark: Cow<'a, str>,
     pub connect_timezone_seconds: Option<i32>,
     pub connect_scan: bool,
     pub connect_unix: Cow<'a, str>,
@@ -764,6 +812,10 @@ impl Validated<'_> {
 
         let raw_timezone: i64 = parms.get_int(Timezone)?;
         let raw_binary: &Value = parms.get(Binary);
+
+        let raw_client_info = parms.get_bool(ClientInfo)?;
+        let raw_client_application = parms.get_str(ClientApplication)?;
+        let raw_client_remark = parms.get_str(ClientRemark)?;
 
         let raw_tableschema: Cow<str> = parms.get_str(TableSchema)?;
         let raw_table: Cow<str> = parms.get_str(Table)?;
@@ -829,6 +881,13 @@ impl Validated<'_> {
             return Err(ClientCertRequiresKey);
         }
 
+        // Specific to this crate
+        if raw_client_info && raw_client_application.contains('\n') {
+            return Err(ClientInfoNewline(ClientApplication));
+        }
+        if raw_client_info && raw_client_remark.contains('\n') {
+            return Err(ClientInfoNewline(ClientRemark));
+        }
         // Virtual parameters
 
         // connect_port and connect_binary have already been determined above
@@ -895,6 +954,9 @@ impl Validated<'_> {
             language: raw_language,
             replysize: raw_replysize,
             schema: raw_schema,
+            client_info: raw_client_info,
+            client_application: raw_client_application,
+            client_remark: raw_client_remark,
             connect_scan,
             connect_unix,
             connect_tcp,
