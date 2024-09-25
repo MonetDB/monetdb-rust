@@ -1,4 +1,5 @@
 use std::env;
+use std::fmt::Write;
 
 use anyhow::{bail, Result as AResult};
 use log::info;
@@ -41,15 +42,33 @@ fn main() -> AResult<()> {
         println!("================================================================");
         cursor.execute(&query)?;
         loop {
-            if let Some(count) = cursor.affected_rows() {
+            if let Some(row_count) = cursor.affected_rows() {
                 if cursor.has_result_set() {
-                    let md = cursor.metadata();
+                    let md = cursor.metadata().to_vec();
                     let ncols = md.len();
-                    println!("RESULT, {count} rows, {ncols} cols: {md:?}");
-                    let rs = cursor.temporary_get_result_set()?.unwrap().trim_end();
-                    println!("{rs}")
+                    println!("RESULT, {row_count} rows, {ncols} cols: {md:?}");
+                    let mut i = 0;
+                    let mut buf = String::new();
+                    while cursor.next_row()? {
+                        i += 1;
+                        println!("  - ROW {i}/{row_count}:");
+                        for (i, col) in md.iter().enumerate() {
+                            let name = col.name();
+                            let sql_type = col.sql_type();
+                            buf.clear();
+                            write!(buf, "{name} [{sql_type}]").unwrap();
+                            let value = cursor.get_str(i)?;
+                            if let Some(s) = value {
+                                println!("      {buf:26} = {s}");
+                            } else {
+                                println!("      {buf:26} is NULL");
+                            }
+                        }
+                    }
+                    // let rs = cursor.temporary_get_result_set()?.unwrap().trim_end();
+                    // println!("{rs}")
                 } else {
-                    println!("OK, {count} affected rows");
+                    println!("OK, {row_count} affected rows");
                 }
             } else {
                 println!("OK");

@@ -1,3 +1,5 @@
+use std::fmt;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum MonetKind {
     /// A common integer, that is, up to i64.
@@ -26,6 +28,22 @@ pub enum MonetType {
     HugeInt,
     Decimal(Precision, Scale),
     Varchar(Width),
+}
+
+impl fmt::Display for MonetType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use MonetType::*;
+        match self {
+            Bool => f.write_str("BOOL"),
+            TinyInt => f.write_str("TINYINT"),
+            SmallInt => f.write_str("SMALLINT"),
+            Int => f.write_str("INT"),
+            BigInt => f.write_str("BIGINT"),
+            HugeInt => f.write_str("HUGEINT"),
+            Decimal(p, s) => write!(f, "DECIMAL({p}, {s})"),
+            Varchar(n) => write!(f, "VARCHAR({n})"),
+        }
+    }
 }
 
 impl MonetType {

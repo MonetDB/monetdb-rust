@@ -2,6 +2,7 @@
 
 pub mod delayed;
 pub mod replies;
+pub mod rowset;
 
 use std::mem;
 use std::{io, sync::Arc};
@@ -27,6 +28,8 @@ pub enum CursorError {
     Framing(#[from] FramingError),
     #[error(transparent)]
     BadReply(#[from] BadReply),
+    #[error("there is no result set")]
+    NoResultSet,
 }
 
 pub type CursorResult<T> = Result<T, CursorError>;
@@ -94,11 +97,6 @@ impl Cursor {
         self.replies.at_result_set()
     }
 
-    pub fn temporary_get_result_set(&self) -> CursorResult<Option<&str>> {
-        let x = self.replies.remaining_rows()?;
-        Ok(x)
-    }
-
     pub fn next_reply(&mut self) -> CursorResult<bool> {
         // todo: close server side result set if necessary
         let old = mem::take(&mut self.replies);
@@ -127,6 +125,30 @@ impl Cursor {
         } else {
             &[]
         }
+    }
+
+    pub fn next_row(&mut self) -> CursorResult<bool> {
+        // Skip forward to the next result set if we're not currently on one
+        loop {
+            match &mut self.replies {
+                ReplyParser::Data { row_set, .. } => {
+                    let x = row_set.advance()?;
+                    return Ok(x);
+                }
+                ReplyParser::Exhausted(_) => return Err(CursorError::NoResultSet),
+                _ => {
+                    self.next_reply()?;
+                }
+            }
+        }
+    }
+
+    pub fn get_str(&self, col: usize) -> CursorResult<Option<&str>> {
+        let ReplyParser::Data { row_set, .. } = &self.replies else {
+            return Err(CursorError::NoResultSet);
+        };
+        let value = row_set.get_field_str(col)?;
+        Ok(value)
     }
 }
 
