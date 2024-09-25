@@ -21,7 +21,7 @@ use crate::{
     framing::{reading::MapiReader, writing::MapiBuf},
     parms::{Parameters, ParmError, Validated},
     util::hash_algorithms,
-    IoError,
+    IoError, PUBLIC_NAME,
 };
 
 use super::{ServerSock, ServerState};
@@ -509,7 +509,7 @@ impl Default for ClientInfo {
                 name.to_string_lossy().to_string().into()
             }
         };
-        let client_library = concat!("monetdb-rs ", env!("CARGO_PKG_VERSION")).into();
+        let client_library = PUBLIC_NAME.into();
         let client_remark = "".into();
         let client_pid = process::id();
         Self {

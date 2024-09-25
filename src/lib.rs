@@ -10,6 +10,10 @@ pub mod monettypes;
 pub mod parms;
 pub mod util;
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub const PUBLIC_NAME: &str = concat!("monetdb-rust ", env!("CARGO_PKG_VERSION"));
+
 /// Variant of std::io::Error that implements PartialEq, Eq and Clone.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct IoError(io::ErrorKind, String);
