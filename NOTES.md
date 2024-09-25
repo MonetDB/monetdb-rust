@@ -36,3 +36,5 @@ deal with unclosed START TRANSACTION when autocommit=True
 scroll
 
 expose fewer pub items
+
+errors could be much more informative
