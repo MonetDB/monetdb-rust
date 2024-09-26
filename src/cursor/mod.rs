@@ -9,6 +9,7 @@ use std::{io, sync::Arc};
 
 use delayed::DelayedCommands;
 use replies::{BadReply, ReplyParser, ResultColumn};
+use rowset::RowSet;
 
 use crate::conn::Conn;
 use crate::framing::reading::MapiReader;
@@ -30,6 +31,8 @@ pub enum CursorError {
     BadReply(#[from] BadReply),
     #[error("there is no result set")]
     NoResultSet,
+    #[error("could not convert column {0} to {1}: {2}")]
+    Conversion(usize, &'static str, String),
 }
 
 pub type CursorResult<T> = Result<T, CursorError>;
@@ -143,13 +146,39 @@ impl Cursor {
         }
     }
 
-    pub fn get_str(&self, col: usize) -> CursorResult<Option<&str>> {
-        let ReplyParser::Data { row_set, .. } = &self.replies else {
-            return Err(CursorError::NoResultSet);
-        };
-        let value = row_set.get_field_str(col)?;
-        Ok(value)
+    fn row_set(&self) -> CursorResult<&RowSet> {
+        if let ReplyParser::Data { row_set, .. } = &self.replies {
+            Ok(row_set)
+        } else {
+            Err(CursorError::NoResultSet)
+        }
     }
+}
+
+macro_rules! getter {
+    ($method:ident, $type:ty) => {
+        pub fn $method(&self, col: usize) -> CursorResult<Option<$type>> {
+            self.row_set()?.$method(col)
+        }
+    };
+}
+
+impl Cursor {
+    getter!(get_str, &str);
+    getter!(get_i8, i8);
+    getter!(get_u8, u8);
+    getter!(get_i16, i16);
+    getter!(get_u16, u16);
+    getter!(get_i32, i32);
+    getter!(get_u32, u32);
+    getter!(get_i64, i64);
+    getter!(get_u64, u64);
+    getter!(get_i128, i128);
+    getter!(get_u128, u128);
+    getter!(get_isize, isize);
+    getter!(get_usize, usize);
+    getter!(get_f32, f32);
+    getter!(get_f64, f64);
 }
 
 fn find_response_line(marker: u8, response: &[u8]) -> Option<usize> {
