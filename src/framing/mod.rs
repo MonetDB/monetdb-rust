@@ -1,6 +1,7 @@
 pub mod blockstate;
 pub mod connecting;
 pub mod reading;
+pub mod tls;
 pub mod writing;
 
 use std::{error, fmt, io, net::TcpStream, os::unix::net::UnixStream};

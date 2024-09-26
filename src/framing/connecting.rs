@@ -40,6 +40,8 @@ pub enum ConnectError {
     UnsupportedHashAlgo(String),
     #[error("TLS (monetdbs://) has not been enabled")]
     TlsNotSupported,
+    #[error("TLS error: {0}")]
+    TlsError(String),
     #[error("only language=sql is supported")]
     OnlySqlSupported,
     #[error("too many redirects")]
@@ -131,10 +133,6 @@ fn connect_tcp_socket(parms: &Validated) -> io::Result<ServerSock> {
 fn connect_socket(parms: &Validated) -> ConnResult<ServerSock> {
     let mut err = None;
 
-    if parms.tls {
-        return Err(ConnectError::TlsNotSupported);
-    }
-
     if !parms.connect_unix.is_empty() {
         match connect_unix_socket(parms) {
             Ok(s) => return Ok(s),
@@ -143,12 +141,40 @@ fn connect_socket(parms: &Validated) -> ConnResult<ServerSock> {
     }
     if !parms.connect_tcp.is_empty() {
         match connect_tcp_socket(parms) {
-            Ok(s) => return Ok(s),
+            Ok(s) => return wrap_tls(parms, s),
             Err(e) => err = Some(e),
         }
     }
     Err(err.unwrap().into())
 }
+
+fn wrap_tls(parms: &Validated, mut sock: ServerSock) -> ConnResult<ServerSock> {
+    if !parms.tls {
+        // Prime the connection with a number of NUL bytes.
+        // This has two purposes:
+        // 1. if we're accidentally connecting to a TLS server it may cause the
+        // server to close the connection instead of hanging waiting for us to
+        // speak.
+        // 2. somehow it makes establishing the connection slightly faster, not
+        // clear why.
+        //
+        // Note: it must be an even number of NUL bytes so the server ignores it.
+        let nuls = [0u8; 8];
+        sock.write_all(&nuls)?;
+        return Ok(sock);
+    }
+
+    let implementations: &[&TlsImplementation] = &[
+        #[cfg(feature = "rustls")]
+        &super::tls::rustls::wrap_with_rustls,
+        // dummy implementation
+        &|_, _| Err(ConnectError::TlsNotSupported),
+    ];
+
+    implementations[0](parms, sock)
+}
+
+type TlsImplementation = dyn Fn(&Validated, ServerSock) -> ConnResult<ServerSock>;
 
 #[derive(Debug)]
 enum Login {
