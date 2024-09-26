@@ -1,0 +1,53 @@
+
+- Minimal features (very first release)
+
+  - [ ] typed getters
+
+  - [ ] Xexport
+
+  - [ ] scroll
+
+  - [ ] execute with bound parameters
+
+  - [ ] start transaction / commit / rollback
+
+  - [ ] basic test suite
+
+- Basic features (first serious release)
+
+  - [ ] Xexportbin
+
+  - [ ] Check all connection parameters: are they being used?
+
+  - [ ] Unix domain socket scanning
+
+  - [ ] error design: provoke all errors, what does the message look like?
+
+  - [ ] brief code overview, plus doc comments on the more important types and functions
+
+  - [ ] reasonable test coverage (no need to measure)
+
+  - [ ] CI
+
+  - [ ] make fewer things pub
+
+  - [ ] enable / disable logging with a feature
+
+  - [ ] test prehashed passwords
+
+  - [ ] framing tests: invalid headers, incomplete reads and writes
+
+- Advanced features
+
+  - [ ] support std::path::Path in Parameters
+
+  - [ ] PREPARE statement
+
+  - [ ] TLS
+
+  - [ ] store login message somewhere?
+
+- Optimizations
+
+  - [ ] do more parsing while reading, no need to be faster than the server
+
