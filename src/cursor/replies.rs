@@ -243,18 +243,21 @@ pub enum ReplyParser {
         buf: ReplyBuf,
         affected: Option<i64>,
     },
-    Data {
-        result_id: u64,
-        cur_row: u64,
-        nrows: u64,
-        columns: Vec<ResultColumn>,
-        reply_size: u64,
-        row_set: RowSet,
-    },
+    Data(ResultSet),
     Tx {
         buf: ReplyBuf,
         auto_commit: bool,
     },
+}
+
+#[derive(Debug)]
+pub struct ResultSet {
+    pub result_id: u64,
+    pub next_row: u64,
+    pub total_rows: u64,
+    pub columns: Vec<ResultColumn>,
+    pub reply_size: u64,
+    pub row_set: RowSet,
 }
 
 impl Default for ReplyParser {
@@ -280,7 +283,9 @@ impl ReplyParser {
     pub fn affected_rows(&self) -> Option<i64> {
         match self {
             ReplyParser::Success { affected, .. } => *affected,
-            ReplyParser::Data { nrows, .. } => Some(*nrows as i64),
+            ReplyParser::Data(ResultSet {
+                total_rows: nrows, ..
+            }) => Some(*nrows as i64),
             _ => None,
         }
     }
@@ -294,7 +299,7 @@ impl ReplyParser {
             ReplyParser::Exhausted(vec) => Self::parse(ReplyBuf::new(vec)),
             ReplyParser::Error(buf) => Self::parse(buf),
             ReplyParser::Success { buf, .. } | ReplyParser::Tx { buf, .. } => Self::parse(buf),
-            ReplyParser::Data { row_set, .. } => {
+            ReplyParser::Data(ResultSet { row_set, .. }) => {
                 let buf = row_set.finish();
                 Self::parse(buf)
             }
@@ -454,14 +459,14 @@ impl ReplyParser {
         })?;
 
         let row_set = RowSet::new(buf, columns.len());
-        Ok(ReplyParser::Data {
+        Ok(ReplyParser::Data(ResultSet {
             result_id,
-            cur_row: 0,
-            nrows,
+            next_row: 0,
+            total_rows: nrows,
             columns,
             reply_size,
             row_set,
-        })
+        }))
     }
 
     fn parse_data_header<'a>(

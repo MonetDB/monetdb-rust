@@ -8,7 +8,7 @@ use std::mem;
 use std::{io, sync::Arc};
 
 use delayed::DelayedCommands;
-use replies::{BadReply, ReplyParser, ResultColumn};
+use replies::{BadReply, ReplyParser, ResultColumn, ResultSet};
 use rowset::RowSet;
 
 use crate::conn::Conn;
@@ -123,18 +123,42 @@ impl Cursor {
     }
 
     pub fn metadata(&self) -> &[ResultColumn] {
-        if let ReplyParser::Data { columns, .. } = &self.replies {
+        if let ReplyParser::Data(ResultSet { columns, .. }) = &self.replies {
             &columns[..]
         } else {
             &[]
         }
     }
 
+    pub fn my_next_row(&mut self) -> CursorResult<bool> {
+        // This loop tries to find a result set if we're not already in one.
+        let rs: &mut ResultSet = loop {
+            match &mut self.replies {
+                ReplyParser::Data(rs) => break rs,
+                ReplyParser::Exhausted(_) => return Err(CursorError::NoResultSet),
+                _ => self.next_reply()?,
+            };
+        };
+
+        // This loop tries to find a row, possibly fetching more data from the server
+        let ResultSet { row_set, next_row, total_rows, ..} = rs;
+        loop {
+            if row_set.advance()? {
+                *next_row += 1;
+                return Ok(true);
+            }
+            if next_row == total_rows {
+                return Ok(false);
+            }
+        }
+
+    }
+
     pub fn next_row(&mut self) -> CursorResult<bool> {
         // Skip forward to the next result set if we're not currently on one
         loop {
             match &mut self.replies {
-                ReplyParser::Data { row_set, .. } => {
+                ReplyParser::Data(ResultSet { row_set, .. }) => {
                     let x = row_set.advance()?;
                     return Ok(x);
                 }
@@ -147,7 +171,7 @@ impl Cursor {
     }
 
     fn row_set(&self) -> CursorResult<&RowSet> {
-        if let ReplyParser::Data { row_set, .. } = &self.replies {
+        if let ReplyParser::Data(ResultSet { row_set, .. }) = &self.replies {
             Ok(row_set)
         } else {
             Err(CursorError::NoResultSet)
