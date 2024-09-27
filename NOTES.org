@@ -3,7 +3,11 @@
 
   - [X] typed getters
 
-  - [ ] Xexport
+  - [X] Xexport
+
+  - [X] Xclose
+
+  - [ ] Xexport cleanup?
 
   - [ ] scroll
 

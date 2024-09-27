@@ -111,7 +111,10 @@ impl Cursor {
     pub fn next_reply(&mut self) -> CursorResult<bool> {
         // todo: close server side result set if necessary
         let old = mem::take(&mut self.replies);
-        let new = old.into_next_reply()?;
+        let (new, to_close) = old.into_next_reply()?;
+        if let Some(res_id) = to_close {
+            self.queue_close(res_id)?;
+        }
         self.switch_to_reply(new)
     }
 
@@ -121,6 +124,14 @@ impl Cursor {
         Ok(have_next)
     }
 
+    fn queue_close(&mut self, res_id: u64) -> CursorResult<()> {
+        self.conn.run_locked(|_, delayed, sock| {
+            delayed.add_xcommand("close", res_id);
+            Ok(sock)
+        })?;
+        Ok(())
+    }
+
     fn exhaust(&mut self) -> CursorResult<()> {
         loop {
             if let ReplyParser::Exhausted(..) = self.replies {
@@ -128,6 +139,23 @@ impl Cursor {
             }
             self.next_reply()?;
         }
+    }
+
+    pub fn close(mut self) -> CursorResult<()> {
+        self.do_close()?;
+        Ok(())
+    }
+
+    fn do_close(&mut self) -> CursorResult<()> {
+        self.exhaust()?;
+        let mut vec = self.replies.take_buffer();
+        self.conn.run_locked(|_state, delayed, mut sock| {
+            if !delayed.responses.is_empty() {
+                sock = delayed.send_delayed(sock)?;
+                sock = delayed.recv_delayed(sock, &mut vec)?;
+            }
+            Ok(sock)
+        })
     }
 
     pub fn metadata(&self) -> &[ResultColumn] {
@@ -267,19 +295,8 @@ impl Cursor {
     getter!(get_f64, f64);
 }
 
-fn find_response_line(marker: u8, response: &[u8]) -> Option<usize> {
-    if response.is_empty() {
-        None
-    } else if response[0] == marker {
-        Some(0)
-    } else {
-        memchr::memmem::find(response, &[b'\n', marker]).map(|idx| idx + 1)
-    }
-}
-
-pub fn from_utf8(bytes: &[u8]) -> CursorResult<&str> {
-    match std::str::from_utf8(bytes) {
-        Ok(s) => Ok(s),
-        Err(_) => Err(FramingError::Unicode.into()),
+impl Drop for Cursor {
+    fn drop(&mut self) {
+        let _ = self.do_close();
     }
 }

@@ -258,6 +258,7 @@ pub struct ResultSet {
     pub columns: Vec<ResultColumn>,
     pub row_set: RowSet,
     pub stashed: Option<RowSet>,
+    pub to_close: Option<u64>,
 }
 
 impl Default for ReplyParser {
@@ -294,7 +295,8 @@ impl ReplyParser {
         matches!(self, ReplyParser::Data { .. })
     }
 
-    pub fn into_next_reply(self) -> RResult<ReplyParser> {
+    pub fn into_next_reply(self) -> RResult<(ReplyParser, Option<u64>)> {
+        let mut return_to_close = None;
         use ReplyParser::*;
         let buf = match self {
             Exhausted(vec) => ReplyBuf::new(vec),
@@ -302,17 +304,22 @@ impl ReplyParser {
             Data(
                 ResultSet {
                     stashed: Some(row_set),
+                    to_close,
                     ..
                 }
                 | ResultSet {
                     stashed: None,
                     row_set,
+                    to_close,
                     ..
                 },
-            ) => row_set.finish(),
+            ) => {
+                return_to_close = to_close;
+                row_set.finish()
+            }
         };
 
-        ReplyParser::parse(buf)
+        ReplyParser::parse(buf).map(|parser| (parser, return_to_close))
     }
 
     pub fn detect_errors(response: &[u8]) -> CursorResult<()> {
@@ -417,11 +424,13 @@ impl ReplyParser {
     fn parse_data(mut buf: ReplyBuf) -> RResult<ReplyParser> {
         let mut fields = [0; 4];
         Self::parse_header(&mut buf, &mut fields)?;
-        let [result_id, nrows, ncols, _] = fields;
+        let [result_id, rows_total, ncols, rows_included] = fields;
         if ncols > usize::MAX as u64 {
             return Err(BadReply::TooManyColumns(ncols));
         }
         let ncols = ncols as usize;
+        let to_close = (rows_included < rows_total).then_some(result_id);
+
         let mut columns: Vec<ResultColumn> =
             iter::repeat(ResultColumn::empty()).take(ncols).collect();
 
@@ -471,9 +480,10 @@ impl ReplyParser {
         Ok(ReplyParser::Data(ResultSet {
             result_id,
             next_row: 0,
-            total_rows: nrows,
+            total_rows: rows_total,
             columns,
             row_set,
+            to_close,
             stashed: None,
         }))
     }
