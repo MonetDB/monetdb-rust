@@ -26,6 +26,7 @@ pub enum MonetType {
     Int,
     BigInt,
     HugeInt,
+    Oid,
     Decimal(Precision, Scale),
     Varchar(Width),
 }
@@ -40,6 +41,7 @@ impl fmt::Display for MonetType {
             Int => f.write_str("INT"),
             BigInt => f.write_str("BIGINT"),
             HugeInt => f.write_str("HUGEINT"),
+            Oid => f.write_str("OID"),
             Decimal(p, s) => write!(f, "DECIMAL({p}, {s})"),
             Varchar(n) => write!(f, "VARCHAR({n})"),
         }
@@ -50,7 +52,7 @@ impl MonetType {
     pub fn kind(&self) -> MonetKind {
         use MonetType::*;
         match self {
-            Bool | TinyInt | SmallInt | Int | BigInt => MonetKind::Integer,
+            Bool | TinyInt | SmallInt | Int | BigInt | Oid => MonetKind::Integer,
             HugeInt => MonetKind::HugeInteger,
             Decimal(_, _) => MonetKind::Decimal,
             Varchar(_) => MonetKind::Text,
@@ -66,6 +68,7 @@ impl MonetType {
             "int" => Int,
             "bigint" => BigInt,
             "hugeint" => HugeInt,
+            "oid" => Oid,
             "varchar" => Varchar(0),
             "decimal" => Decimal(0, 0),
             _ => return None,
