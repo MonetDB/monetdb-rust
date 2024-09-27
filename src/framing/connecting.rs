@@ -306,14 +306,14 @@ fn challenge_response(
         let level_limit = chal.sql_handshake_option_level;
         let mut sep = "";
 
-        let mut arrange = |lvl: u8, key: &str, value: i64, cmd: fmt::Arguments| {
+        let mut arrange = |lvl: u8, key: &'static str, value: i64, cmd: fmt::Arguments| {
             if lvl < level_limit {
                 // use a handshake option
                 write!(response, "{sep}{key}={value}").unwrap();
                 sep = ",";
             } else {
-                // use a (delayed) command
-                delayed.add(cmd.to_string());
+                // use a delayed Xcommand
+                delayed.add(key, cmd)
             }
         };
 
@@ -327,7 +327,7 @@ fn challenge_response(
         // MAPI_HANDSHAKE_REPLY_SIZE = 2,
         if state.reply_size != parms.replysize {
             let v = parms.replysize;
-            arrange(2, "reply_size", v, format_args!("Xreply_size {v}"));
+            arrange(2, "reply_size", v as i64, format_args!("Xreply_size {v}"));
             state.reply_size = parms.replysize;
         }
 
@@ -376,7 +376,7 @@ fn challenge_response(
             write!(delayed.buffer, "{}", SqlForm(&info)).unwrap();
             delayed.buffer.end();
             delayed.responses.push(ExpectedResponse {
-                description: "ClientInfo".to_string(),
+                description: "ClientInfo".into(),
             });
         } else if parms.language == "mal" || parms.language == "msql" {
             todo!()

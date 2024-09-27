@@ -769,7 +769,7 @@ pub struct Validated<'a> {
     pub autocommit: bool,
     pub cert: Cow<'a, str>,
     pub language: Cow<'a, str>,
-    pub replysize: i64,
+    pub replysize: usize,
     pub schema: Cow<'a, str>,
     pub client_info: bool,
     pub client_application: Cow<'a, str>,
@@ -942,6 +942,10 @@ impl Validated<'_> {
             None
         };
 
+        let Ok(replysize) = raw_replysize.try_into() else {
+            return Err(ParmError::InvalidInt(Parm::ReplySize));
+        };
+
         // Construct object
 
         let validated = Validated {
@@ -952,7 +956,7 @@ impl Validated<'_> {
             autocommit: raw_autocommit,
             cert: raw_cert,
             language: raw_language,
-            replysize: raw_replysize,
+            replysize,
             schema: raw_schema,
             client_info: raw_client_info,
             client_application: raw_client_application,

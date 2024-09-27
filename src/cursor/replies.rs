@@ -7,7 +7,7 @@ use memchr::memmem;
 
 use crate::monettypes::MonetType;
 
-use super::rowset::RowSet;
+use super::{rowset::RowSet, CursorError, CursorResult};
 
 #[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
 pub enum BadReply {
@@ -256,8 +256,8 @@ pub struct ResultSet {
     pub next_row: u64,
     pub total_rows: u64,
     pub columns: Vec<ResultColumn>,
-    pub reply_size: u64,
     pub row_set: RowSet,
+    pub stashed: Option<RowSet>,
 }
 
 impl Default for ReplyParser {
@@ -295,26 +295,35 @@ impl ReplyParser {
     }
 
     pub fn into_next_reply(self) -> RResult<ReplyParser> {
-        match self {
-            ReplyParser::Exhausted(vec) => Self::parse(ReplyBuf::new(vec)),
-            ReplyParser::Error(buf) => Self::parse(buf),
-            ReplyParser::Success { buf, .. } | ReplyParser::Tx { buf, .. } => Self::parse(buf),
-            ReplyParser::Data(ResultSet { row_set, .. }) => {
-                let buf = row_set.finish();
-                Self::parse(buf)
-            }
-        }
+        use ReplyParser::*;
+        let buf = match self {
+            Exhausted(vec) => ReplyBuf::new(vec),
+            Error(buf) | Success { buf, .. } | Tx { buf, .. } => buf,
+            Data(
+                ResultSet {
+                    stashed: Some(row_set),
+                    ..
+                }
+                | ResultSet {
+                    stashed: None,
+                    row_set,
+                    ..
+                },
+            ) => row_set.finish(),
+        };
+
+        ReplyParser::parse(buf)
     }
 
-    pub fn detect_errors(response: &[u8]) -> Option<&str> {
+    pub fn detect_errors(response: &[u8]) -> CursorResult<()> {
         let start = if response.is_empty() {
-            return None;
+            return Ok(());
         } else if response[0] == b'!' {
             1
         } else if let Some(pos) = memmem::find(response, b"\n!") {
             pos + 1
         } else {
-            return None;
+            return Ok(());
         };
 
         let mut bytes = &response[start..];
@@ -324,7 +333,7 @@ impl ReplyParser {
         let message = std::str::from_utf8(bytes)
             .unwrap_or("server sent an error message but it can't be decoded");
 
-        Some(message)
+        Err(CursorError::Server(message.to_string()))
     }
 
     fn parse(buf: ReplyBuf) -> RResult<ReplyParser> {
@@ -365,7 +374,7 @@ impl ReplyParser {
         })
     }
 
-    fn parse_header<T: FromStr>(buf: &mut ReplyBuf, dest: &mut [T]) -> RResult<()> {
+    pub(crate) fn parse_header<T: FromStr>(buf: &mut ReplyBuf, dest: &mut [T]) -> RResult<()> {
         let line = buf.split_str(b'\n', "header line")?.trim_ascii();
         let mut parts = line[3..].split(' ');
         for (i, d) in dest.iter_mut().enumerate() {
@@ -408,7 +417,7 @@ impl ReplyParser {
     fn parse_data(mut buf: ReplyBuf) -> RResult<ReplyParser> {
         let mut fields = [0; 4];
         Self::parse_header(&mut buf, &mut fields)?;
-        let [result_id, nrows, ncols, reply_size] = fields;
+        let [result_id, nrows, ncols, _] = fields;
         if ncols > usize::MAX as u64 {
             return Err(BadReply::TooManyColumns(ncols));
         }
@@ -464,8 +473,8 @@ impl ReplyParser {
             next_row: 0,
             total_rows: nrows,
             columns,
-            reply_size,
             row_set,
+            stashed: None,
         }))
     }
 

@@ -17,6 +17,7 @@ use crate::{
 pub struct Connection(Arc<Conn>);
 
 pub(crate) struct Conn {
+    pub(crate) reply_size: usize,
     locked: Mutex<Locked>,
     closing: AtomicBool,
 }
@@ -30,20 +31,9 @@ struct Locked {
 impl Connection {
     pub fn new(parameters: Parameters) -> ConnResult<Connection> {
         let (sock, state, delayed) = establish_connection(parameters)?;
-        let connection = Self::from_parts(sock, state, delayed);
-        Ok(connection)
-    }
 
-    pub fn connect_url(url: impl AsRef<str>) -> ConnResult<Connection> {
-        let parms = Parameters::from_url(url.as_ref())?;
-        Self::new(parms)
-    }
+        let reply_size = state.reply_size;
 
-    pub(crate) fn from_parts(
-        sock: ServerSock,
-        state: ServerState,
-        delayed: DelayedCommands,
-    ) -> Self {
         let locked = Locked {
             state,
             sock: Some(sock),
@@ -52,8 +42,16 @@ impl Connection {
         let conn = Conn {
             locked: Mutex::new(locked),
             closing: AtomicBool::new(false),
+            reply_size,
         };
-        Connection(Arc::new(conn))
+        let connection = Connection(Arc::new(conn));
+
+        Ok(connection)
+    }
+
+    pub fn connect_url(url: impl AsRef<str>) -> ConnResult<Connection> {
+        let parms = Parameters::from_url(url.as_ref())?;
+        Self::new(parms)
     }
 
     pub fn cursor(&self) -> Cursor {

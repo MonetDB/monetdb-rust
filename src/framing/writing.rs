@@ -116,6 +116,10 @@ impl MapiBuf {
         }
         self.write_reset(wr)
     }
+
+    pub fn peek(&self) -> &[u8] {
+        &self.buffer
+    }
 }
 
 impl fmt::Write for MapiBuf {

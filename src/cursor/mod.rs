@@ -8,7 +8,7 @@ use std::mem;
 use std::{io, sync::Arc};
 
 use delayed::DelayedCommands;
-use replies::{BadReply, ReplyParser, ResultColumn, ResultSet};
+use replies::{BadReply, ReplyBuf, ReplyParser, ResultColumn, ResultSet};
 use rowset::RowSet;
 
 use crate::conn::Conn;
@@ -33,6 +33,8 @@ pub enum CursorError {
     NoResultSet,
     #[error("could not convert column {0} to {1}: {2}")]
     Conversion(usize, &'static str, String),
+    #[error("server unexpectedly returned no rows")]
+    NoRows,
 }
 
 pub type CursorResult<T> = Result<T, CursorError>;
@@ -47,14 +49,16 @@ pub struct Cursor {
     conn: Arc<Conn>,
     buf: MapiBuf,
     replies: ReplyParser,
+    reply_size: usize,
 }
 
 impl Cursor {
     pub(crate) fn new(conn: Arc<Conn>) -> Self {
         Cursor {
-            conn,
             buf: MapiBuf::new(),
             replies: ReplyParser::default(),
+            reply_size: conn.reply_size,
+            conn,
         }
     }
 
@@ -62,33 +66,37 @@ impl Cursor {
         self.exhaust()?;
 
         let mut vec = self.replies.take_buffer();
+        let command = &[b"s", statements.as_bytes(), b"\n;"];
 
-        self.conn.run_locked(
-            |_state: &mut ServerState,
-             delayed: &mut DelayedCommands,
-             mut sock: ServerSock|
-             -> CursorResult<ServerSock> {
-                let command = &[b"s", statements.as_bytes(), b"\n;"];
-                sock = delayed.send_delayed_plus(sock, command)?;
-                sock = delayed.recv_delayed(sock, &mut vec)?;
-                vec.clear();
-                sock = MapiReader::to_end(sock, &mut vec)?;
-                Ok(sock)
-            },
-        )?;
+        self.command(command, &mut vec)?;
 
-        let error =
-            ReplyParser::detect_errors(&vec).map(|msg| CursorError::Server(msg.to_string()));
+        let error = ReplyParser::detect_errors(&vec);
 
         // Always create and install a replyparser, even if an error occurred.
         // We need to make sure all result sets are being released etc.
         self.replies = ReplyParser::new(vec)?;
 
-        if let Some(err) = error {
+        if let Err(err) = error {
             self.exhaust()?;
             return Err(err);
         }
 
+        Ok(())
+    }
+
+    fn command(&mut self, command: &[&[u8]], vec: &mut Vec<u8>) -> Result<(), CursorError> {
+        self.conn.run_locked(
+            |_state: &mut ServerState,
+             delayed: &mut DelayedCommands,
+             mut sock: ServerSock|
+             -> CursorResult<ServerSock> {
+                sock = delayed.send_delayed_plus(sock, command)?;
+                sock = delayed.recv_delayed(sock, vec)?;
+                vec.clear();
+                sock = MapiReader::to_end(sock, vec)?;
+                Ok(sock)
+            },
+        )?;
         Ok(())
     }
 
@@ -130,19 +138,17 @@ impl Cursor {
         }
     }
 
-    pub fn my_next_row(&mut self) -> CursorResult<bool> {
-        // This loop tries to find a result set if we're not already in one.
-        let rs: &mut ResultSet = loop {
-            match &mut self.replies {
-                ReplyParser::Data(rs) => break rs,
-                ReplyParser::Exhausted(_) => return Err(CursorError::NoResultSet),
-                _ => self.next_reply()?,
-            };
-        };
+    pub fn next_row(&mut self) -> CursorResult<bool> {
+        self.skip_to_result_set()?;
 
-        // This loop tries to find a row, possibly fetching more data from the server
-        let ResultSet { row_set, next_row, total_rows, ..} = rs;
         loop {
+            let ResultSet {
+                row_set,
+                next_row,
+                total_rows,
+                ..
+            } = self.result_set_mut();
+
             if row_set.advance()? {
                 *next_row += 1;
                 return Ok(true);
@@ -150,24 +156,80 @@ impl Cursor {
             if next_row == total_rows {
                 return Ok(false);
             }
+            self.fetch_more_rows()?;
         }
-
     }
 
-    pub fn next_row(&mut self) -> CursorResult<bool> {
-        // Skip forward to the next result set if we're not currently on one
+    fn result_set(&self) -> &ResultSet {
+        let ReplyParser::Data(rs) = &self.replies else {
+            unreachable!("skip_to_result_set() should have ensured a result set");
+        };
+        rs
+    }
+
+    fn result_set_mut(&mut self) -> &mut ResultSet {
+        let ReplyParser::Data(rs) = &mut self.replies else {
+            unreachable!("skip_to_result_set() should have ensured a result set");
+        };
+        rs
+    }
+
+    fn skip_to_result_set(&mut self) -> CursorResult<()> {
         loop {
             match &mut self.replies {
-                ReplyParser::Data(ResultSet { row_set, .. }) => {
-                    let x = row_set.advance()?;
-                    return Ok(x);
-                }
+                ReplyParser::Data(_) => return Ok(()),
                 ReplyParser::Exhausted(_) => return Err(CursorError::NoResultSet),
-                _ => {
-                    self.next_reply()?;
-                }
-            }
+                _ => self.next_reply()?,
+            };
         }
+    }
+
+    fn decide_next_fetch(&self) -> (u64, u64, usize) {
+        let ResultSet {
+            result_id,
+            next_row,
+            total_rows,
+            ..
+        } = self.result_set();
+
+        let n = (total_rows - *next_row).min(self.reply_size as u64) as usize;
+        (*result_id, *next_row, n)
+    }
+
+    fn fetch_more_rows(&mut self) -> CursorResult<()> {
+        let (res_id, start, n) = self.decide_next_fetch();
+        let cmd = format!("Xexport {res_id} {start} {n}");
+
+        // scratch vector. TODO re-use this
+        let mut vec = vec![];
+
+        // execute the command
+        self.command(&[cmd.as_bytes()], &mut vec)?;
+        ReplyParser::detect_errors(&vec)?;
+
+        // parse it into a rowset
+        let mut buf = ReplyBuf::new(vec);
+        let mut fields = [0u64; 4];
+        ReplyParser::parse_header(&mut buf, &mut fields)?;
+        let ncol = fields[1];
+        let mut new_row_set = RowSet::new(buf, ncol as usize);
+
+        // If we were reading the initial response, save it.
+        // Then install the new rowset, saving the old one if it's the primary.
+        // We know it's the primary when stashed_primary_row_set is still None.
+        let ResultSet {
+            row_set,
+            stashed: stashed_primary_row_set,
+            ..
+        } = self.result_set_mut();
+        mem::swap(row_set, &mut new_row_set);
+        if stashed_primary_row_set.is_none() {
+            // new_row_set is actually the old row set now
+            *stashed_primary_row_set = Some(new_row_set);
+        }
+
+        // Now the new rows are in place!
+        Ok(())
     }
 
     fn row_set(&self) -> CursorResult<&RowSet> {

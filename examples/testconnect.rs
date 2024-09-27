@@ -11,7 +11,8 @@ DROP TABLE IF EXISTS foo;
 CREATE TABLE foo(i INT, t VARCHAR(10));
 SELECT value FROM sys.generate_series(0,5);
 INSERT INTO foo VALUES (1, 'one'), (42, 'forty-two'), (-1, R'a\"b');
-SELECT * FROM foo
+SELECT * FROM foo;
+SELECT * FROM sys.unclosed_result_sets();
 "##;
 
 fn main() -> AResult<()> {

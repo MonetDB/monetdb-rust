@@ -1,13 +1,14 @@
 #![allow(dead_code)]
 
-use std::io::Write;
+use core::fmt;
+use std::{borrow::Cow, io::Write};
 
 use crate::framing::{reading::MapiReader, writing::MapiBuf, ServerSock};
 
 use super::CursorResult;
 
 pub struct ExpectedResponse {
-    pub description: String,
+    pub description: Cow<'static, str>,
 }
 
 pub struct DelayedCommands {
@@ -28,13 +29,20 @@ impl DelayedCommands {
         }
     }
 
-    pub fn add(&mut self, cmd: String) {
-        self.buffer.append(&cmd);
-        if !cmd.ends_with('\n') {
+    pub fn add(&mut self, descr: &'static str, cmd: impl fmt::Display) {
+        use fmt::Write;
+        write!(self.buffer, "{}", cmd).unwrap();
+        if !self.buffer.peek().ends_with(b"\n") {
             self.buffer.append("\n");
         }
         self.buffer.end();
-        self.responses.push(ExpectedResponse { description: cmd })
+        self.responses.push(ExpectedResponse {
+            description: descr.into(),
+        })
+    }
+
+    pub fn add_xcommand(&mut self, command: &'static str, value: impl fmt::Display) {
+        self.add(command, format_args!("X{command} {value}"))
     }
 
     pub fn send_delayed(&mut self, mut conn: ServerSock) -> CursorResult<ServerSock> {

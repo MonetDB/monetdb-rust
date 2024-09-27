@@ -53,6 +53,7 @@
 
   - [ ] do more parsing while reading, no need to be faster than the server
 
+  - [ ] have newtypes for all Xcommands to avoid duplication
 
 
 

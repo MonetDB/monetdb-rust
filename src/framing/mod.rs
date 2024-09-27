@@ -48,7 +48,7 @@ impl error::Error for FramingError {}
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ServerState {
     pub initial_auto_commit: bool,
-    pub reply_size: i64,
+    pub reply_size: usize,
     pub time_zone_seconds: i32,
 }
 
