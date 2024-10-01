@@ -7,9 +7,7 @@
 
   - [X] Xclose
 
-  - [ ] Xexport cleanup?
-
-  - [ ] scroll
+  - [X] license file
 
   - [ ] execute with bound parameters
 
@@ -17,11 +15,61 @@
 
   - [ ] basic test suite
 
+  - [ ] api docs
+
 - Basic features (first serious release)
 
-  - [ ] all resultset types
+  - [ ] scroll
+
+  - [ ] Xexport cleanup?
 
   - [ ] Xexportbin
+
+  - [ ] better type support, most of the following:
+    - [5/8] result set types that just need their name added
+      - [X] tinyint
+      - [X] smallint
+      - [X] int
+      - [X] bigint
+      - [X] varchar
+      - [ ] char
+      - [ ] url
+      - [ ] json
+
+    - [ ] result set types that need their own getters
+      - [ ] boolean (bool)
+      - [ ] oid (u64)
+      - [ ] hugeint
+      - [ ] real
+      - [ ] double
+      - [ ] blob
+      - [ ] inet
+
+    - [ ] result set types that need getter types from external crates
+      - [ ] decimal
+      - [ ] uuid
+
+    - [0/0] all non-temporal resultset types
+
+    - unsupported types
+      - [ ] geometry
+      - [ ] geometrya
+      - [ ] mbr
+
+    - [0/8] all temporal resultset types
+      - [ ] month_interval
+      - [ ] day_interval
+      - [ ] sec_interval
+      - [ ] time
+      - [ ] timetz
+      - [ ] date
+      - [ ] timestamp
+      - [ ] timestamptz
+
+
+
+
+
 
   - [ ] Check all connection parameters: are they being used?
 
