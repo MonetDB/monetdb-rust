@@ -286,6 +286,7 @@ macro_rules! getter {
 
 impl Cursor {
     getter!(get_str, &str);
+    getter!(get_bool, bool);
     getter!(get_i8, i8);
     getter!(get_u8, u8);
     getter!(get_i16, i16);

@@ -308,7 +308,7 @@ impl RowSet {
     {
         self.transform_field(col, |s| s.parse())
     }
-
+    fromstr_getter!(get_bool, bool);
     fromstr_getter!(get_i8, i8);
     fromstr_getter!(get_u8, u8);
     fromstr_getter!(get_i16, i16);
@@ -333,6 +333,17 @@ fn test_str_getters() {
 
     assert_eq!(rs.get_str(0), Ok(Some(r##"mon"etdb"##)));
     assert_eq!(rs.get_str(1), Ok(None));
+}
+
+#[test]
+fn test_bool_getter() {
+    let testdata = "[ true,\tfalse,\tNULL\t]\n";
+    let mut rs = RowSet::new(ReplyBuf::new(testdata.into()), 3);
+    assert_eq!(rs.advance(), Ok(true));
+
+    assert_eq!(rs.get_bool(0), Ok(Some(true)));
+    assert_eq!(rs.get_bool(1), Ok(Some(false)));
+    assert_eq!(rs.get_bool(2), Ok(None));
 }
 
 #[test]
