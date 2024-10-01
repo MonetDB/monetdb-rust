@@ -9,3 +9,5 @@ but it's a good idea to keep some notes.
 2. [name-notes](./202409-naming.md)
 
 3. [license](./202410-license.md)
+
+4. [status](./202410-status.md)
