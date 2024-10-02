@@ -165,7 +165,7 @@ impl Cursor {
         })
     }
 
-    pub fn metadata(&self) -> &[ResultColumn] {
+    pub fn column_metadata(&self) -> &[ResultColumn] {
         if let ReplyParser::Data(ResultSet { columns, .. }) = &self.replies {
             &columns[..]
         } else {

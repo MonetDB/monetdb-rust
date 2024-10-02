@@ -52,7 +52,7 @@ fn main() -> AResult<()> {
         loop {
             if let Some(row_count) = cursor.affected_rows() {
                 if cursor.has_result_set() {
-                    let md = cursor.metadata().to_vec();
+                    let md = cursor.column_metadata().to_vec();
                     let ncols = md.len();
                     println!("RESULT, {row_count} rows, {ncols} cols: {md:?}");
                     let mut i = 0;
