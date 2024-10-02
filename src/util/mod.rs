@@ -9,3 +9,5 @@
 pub mod referencedata;
 
 pub mod hash_algorithms;
+
+pub mod ioerror;

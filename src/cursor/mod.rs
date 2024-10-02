@@ -7,9 +7,9 @@
 // Copyright 2024 MonetDB Foundation
 #![allow(dead_code)]
 
-pub mod delayed;
-pub mod replies;
-pub mod rowset;
+pub(crate) mod delayed;
+pub(crate) mod replies;
+pub(crate) mod rowset;
 
 use std::mem;
 use std::{io, sync::Arc};
@@ -21,27 +21,40 @@ use rowset::RowSet;
 use crate::conn::Conn;
 use crate::framing::reading::MapiReader;
 use crate::framing::writing::MapiBuf;
+use crate::framing::FramingError;
 use crate::framing::{ServerSock, ServerState};
-use crate::{framing::FramingError, IoError};
+use crate::util::ioerror::IoError;
 
+/// An error that occurs while accessing data with a [`Cursor`].
 #[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
 pub enum CursorError {
+    /// The server returned an error.
     #[error("{0}")]
     Server(String),
+    /// The connection has been closed.
     #[error("connection has been closed")]
     Closed,
+    /// An IO Error occurred.
     #[error(transparent)]
     IO(#[from] IoError),
     #[error(transparent)]
+    /// Something went wrong in the communication with the server.
     Framing(#[from] FramingError),
+    /// The server sent a response that we do not understand.
     #[error(transparent)]
     BadReply(#[from] BadReply),
+    /// [`next_row()`](`Cursor::next_row`) or [`next_reply()`](`Cursor::next_reply`)
+    /// was called but the server did not send a result set.
     #[error("there is no result set")]
     NoResultSet,
-    #[error("could not convert column {0} to {1}: {2}")]
-    Conversion(usize, &'static str, String),
-    #[error("server unexpectedly returned no rows")]
-    NoRows,
+    /// The user called the wrong typed getter, for example
+    /// [`get_bool()`](`Cursor::get_bool`) on an INT column.
+    #[error("could not convert column {colnr} to {expected_type}: {message}")]
+    Conversion {
+        colnr: usize,
+        expected_type: &'static str,
+        message: String,
+    },
 }
 
 pub type CursorResult<T> = Result<T, CursorError>;
@@ -52,6 +65,54 @@ impl From<io::Error> for CursorError {
     }
 }
 
+/// Executes queries on a connection and manages retrieval of the
+/// results. It can be obtained using the
+/// [`cursor()`](`super::conn::Connection::cursor`) method on the connection.
+///
+/// The method [`execute()`][`Cursor::execute`] can be used to send SQL
+/// statements to the server. The server will return zero or more replies,
+/// usually one per statement. A reply may be an error, an acknowledgement such
+/// as "your UPDATE statement affected 1001 rows", or a result set. This method
+/// will immediately abort with `Err(CursorError::Server(_))` if *any* of the
+/// replies is an error message, not just the first reply.
+///
+/// Most retrieval methods on a cursor operate on the *current reply*. To move
+/// on to the next reply, call [`next_reply()`][`Cursor::next_reply`]. The only
+/// exception is [`next_row()`][`Cursor::next_row`], which will automatically
+/// try to skip to the next result set reply if the current reply is not a
+/// result set. This is useful because people often write things like
+/// ```sql
+/// CREATE TABLE foo(..);
+/// INSERT INTO foo SELECT .. FROM other_table;
+/// INSERT INTO foo SELECT .. FROM yet_another_table;
+/// SELECT COUNT(*) FROM foo;
+/// ```
+/// and they expect to be able to directly retrieve the count, not get an error
+/// message "CREATE TABLE did not return a result set". Note that
+/// [`next_row()`][`Cursor::next_row`] will *not* automatically skip to the next
+/// result set if the current result set is exhausted.
+///
+/// To retrieve data from a result set, first call
+/// [`next_row()`][`Cursor::next_row`]. This tries to move the cursor to the
+/// next row and returns a boolean indicating if a new row was found. if so,
+/// methods like [`get_str(colnr)`][`Cursor::get_str`] and
+/// [`get_i32(colnr)`][`Cursor::get_i32`] can be used to retrieve individual
+/// fields from this row.
+/// Note that you **must** call [`next_row()`][`Cursor::next_row`] before you
+/// call a getter. Before the first call to [`next_row()`][`Cursor::next_row`],
+/// the cursor is *before* the first row, not *at* the first row. This behaviour
+/// is convenient because it allows to write things like
+/// ```no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # let mut cursor: monetdb::Cursor = todo!();
+/// cursor.execute("SELECT * FROM mytable")?;
+/// while cursor.next_row()? {
+///     let value: Option<&str> = cursor.get_str(0)?;
+///     println!("{}", value.unwrap());
+/// }
+/// # Ok(())
+/// # }
+/// ```
 pub struct Cursor {
     conn: Arc<Conn>,
     buf: MapiBuf,
@@ -68,6 +129,9 @@ impl Cursor {
             conn,
         }
     }
+
+    /// Execute the given SQL statements and place the cursor at the first
+    /// reply. The results of any earlier queries on this cursor are discarded.
 
     pub fn execute(&mut self, statements: &str) -> CursorResult<()> {
         self.exhaust()?;
@@ -107,14 +171,23 @@ impl Cursor {
         Ok(())
     }
 
+    /// Retrieve the number of affected rows from the current reply. INSERT,
+    /// UPDATE and SELECT statements provide the number of affected rows, but
+    /// for example CREATE TABLE doesn't. Returns a signed value because we're
+    /// not entirely sure whether the server ever sends negative values to indicate
+    /// exceptional conditions.
+    ///
+    /// TODO figure this out and deal with it.
     pub fn affected_rows(&self) -> Option<i64> {
         self.replies.affected_rows()
     }
 
+    /// Return `true` if the current reply is a result set.
     pub fn has_result_set(&self) -> bool {
         self.replies.at_result_set()
     }
 
+    /// Try to move the cursor to the next reply.
     pub fn next_reply(&mut self) -> CursorResult<bool> {
         // todo: close server side result set if necessary
         let old = mem::take(&mut self.replies);
@@ -148,6 +221,8 @@ impl Cursor {
         }
     }
 
+    /// Destroy the cursor, discarding all results. This may need to communicate with the server
+    /// to release resources there.
     pub fn close(mut self) -> CursorResult<()> {
         self.do_close()?;
         Ok(())
@@ -165,6 +240,7 @@ impl Cursor {
         })
     }
 
+    /// Return information about the columns of the current result set.
     pub fn column_metadata(&self) -> &[ResultColumn] {
         if let ReplyParser::Data(ResultSet { columns, .. }) = &self.replies {
             &columns[..]
@@ -173,6 +249,15 @@ impl Cursor {
         }
     }
 
+    /// Advance the cursor to the next available row in the result set,
+    /// returning a boolean that indicates whether such a row was present.
+    ///
+    /// When the cursor enters a new result set after
+    /// [`execute()`][`Cursor::execute`] or
+    /// [`next_reply()`][`Cursor::next_reply`], it is initially positioned
+    /// *before* the first row, and the first call to this method will advance
+    /// it to be *at* the first row. This means you always have to call this method
+    /// before calling getters.
     pub fn next_row(&mut self) -> CursorResult<bool> {
         self.skip_to_result_set()?;
 
@@ -284,6 +369,9 @@ macro_rules! getter {
     };
 }
 
+/// These getters can be called to retrieve values from the current row, after
+/// [`next_row()`][`Cursor::next_row`] has confirmed that that row exists.
+/// They return None if the value is NULL.
 impl Cursor {
     getter!(get_str, &str);
     getter!(get_bool, bool);

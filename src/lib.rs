@@ -5,42 +5,29 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 //
 // Copyright 2024 MonetDB Foundation
-use std::{error, fmt, io};
+#![doc = include_str!("toplevel.md")]
 
 #[macro_use]
-pub mod our_logger;
+mod our_logger;
 
-pub mod conn;
-pub mod cursor;
-pub mod framing;
+mod conn;
+mod cursor;
+mod framing;
 pub mod monettypes;
 pub mod parms;
-pub mod util;
+mod util;
 
+pub use conn::Connection;
+pub use cursor::{replies::ResultColumn, Cursor, CursorError, CursorResult};
+pub use framing::connecting::{ConnectError, ConnectResult};
+pub use monettypes::MonetType;
+pub use parms::Parameters;
+
+/// The version number of this crate.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The identification string of this MonetDB client.
+///
+/// Used for example to set the value in the 'client' column of MonetDB's
+/// `sys.sessions` table.
 pub const PUBLIC_NAME: &str = concat!("monetdb-rust ", env!("CARGO_PKG_VERSION"));
-
-/// Variant of std::io::Error that implements PartialEq, Eq and Clone.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct IoError(io::ErrorKind, String);
-
-impl error::Error for IoError {}
-
-impl IoError {
-    pub fn kind(&self) -> io::ErrorKind {
-        self.0
-    }
-}
-
-impl fmt::Display for IoError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.1.fmt(f)
-    }
-}
-
-impl From<io::Error> for IoError {
-    fn from(value: io::Error) -> Self {
-        IoError(value.kind(), value.to_string())
-    }
-}

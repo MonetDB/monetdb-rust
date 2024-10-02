@@ -27,12 +27,13 @@ use crate::{
     cursor::delayed::{DelayedCommands, ExpectedResponse},
     framing::{reading::MapiReader, writing::MapiBuf},
     parms::{Parameters, ParmError, Validated},
-    util::hash_algorithms,
-    IoError, PUBLIC_NAME,
+    util::{hash_algorithms, ioerror::IoError},
+    PUBLIC_NAME,
 };
 
 use super::{ServerSock, ServerState};
 
+/// An error that occurs while trying to connect to MonetDB.
 #[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
 pub enum ConnectError {
     #[error(transparent)]
@@ -40,7 +41,7 @@ pub enum ConnectError {
     #[error(transparent)]
     IO(#[from] IoError),
     #[error("invalid utf-8 sequence")]
-    UTF(#[from] Utf8Error),
+    Utf(#[from] Utf8Error),
     #[error("{0} in server challenge")]
     InvalidChallenge(String),
     #[error("server requested unsupported hash algorithm: {0}")]
@@ -59,7 +60,7 @@ pub enum ConnectError {
     UnexpectedResponse(String),
 }
 
-pub type ConnResult<T> = Result<T, ConnectError>;
+pub type ConnectResult<T> = Result<T, ConnectError>;
 
 impl From<io::Error> for ConnectError {
     fn from(value: io::Error) -> Self {
@@ -137,7 +138,7 @@ fn connect_tcp_socket(parms: &Validated) -> io::Result<ServerSock> {
     }
 }
 
-fn connect_socket(parms: &Validated) -> ConnResult<ServerSock> {
+fn connect_socket(parms: &Validated) -> ConnectResult<ServerSock> {
     let mut err = None;
 
     if !parms.connect_unix.is_empty() {
@@ -155,7 +156,7 @@ fn connect_socket(parms: &Validated) -> ConnResult<ServerSock> {
     Err(err.unwrap().into())
 }
 
-fn wrap_tls(parms: &Validated, mut sock: ServerSock) -> ConnResult<ServerSock> {
+fn wrap_tls(parms: &Validated, mut sock: ServerSock) -> ConnectResult<ServerSock> {
     if !parms.tls {
         // Prime the connection with a number of NUL bytes.
         // This has two purposes:
@@ -181,7 +182,7 @@ fn wrap_tls(parms: &Validated, mut sock: ServerSock) -> ConnResult<ServerSock> {
     implementations[0](parms, sock)
 }
 
-type TlsImplementation = dyn Fn(&Validated, ServerSock) -> ConnResult<ServerSock>;
+type TlsImplementation = dyn Fn(&Validated, ServerSock) -> ConnectResult<ServerSock>;
 
 #[derive(Debug)]
 enum Login {
@@ -192,7 +193,7 @@ enum Login {
 
 pub fn establish_connection(
     mut parms: Parameters,
-) -> ConnResult<(ServerSock, ServerState, DelayedCommands)> {
+) -> ConnectResult<(ServerSock, ServerState, DelayedCommands)> {
     'redirect: for _ in 0..10 {
         let validated = parms.validate()?;
         if log_enabled!(log::Level::Debug) {
@@ -228,7 +229,7 @@ pub fn establish_connection(
     Err(ConnectError::TooManyRedirects)
 }
 
-fn login(parms: &Validated, sock: ServerSock) -> ConnResult<(Login, DelayedCommands)> {
+fn login(parms: &Validated, sock: ServerSock) -> ConnectResult<(Login, DelayedCommands)> {
     let mut server_message = String::with_capacity(1000);
     let mut mbuf = MapiBuf::new();
 
@@ -257,7 +258,7 @@ fn challenge_response(
     parms: &Validated,
     chal: &Challenge,
     response: &mut String,
-) -> ConnResult<(ServerState, DelayedCommands)> {
+) -> ConnectResult<(ServerState, DelayedCommands)> {
     use fmt::Write;
 
     let my_endian = Endian::NATIVE;
@@ -393,7 +394,7 @@ fn challenge_response(
     Ok((state, delayed))
 }
 
-fn process_redirects(sock: ServerSock, state: ServerState, reply: &str) -> ConnResult<Login> {
+fn process_redirects(sock: ServerSock, state: ServerState, reply: &str) -> ConnectResult<Login> {
     let reply = reply.trim_ascii();
 
     if reply.is_empty() || reply.starts_with("=OK") {
@@ -434,7 +435,7 @@ struct Challenge<'a> {
 }
 
 impl<'a> Challenge<'a> {
-    fn new(line: &'a str) -> ConnResult<Self> {
+    fn new(line: &'a str) -> ConnectResult<Self> {
         // trace!("parsing challenge {line:?}");
         let mut parts = line.trim_end_matches(':').split(':');
 

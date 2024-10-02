@@ -538,6 +538,7 @@ impl ReplyParser {
     }
 }
 
+/// Holds information about a column of a result set.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ResultColumn {
     name: String,
@@ -552,10 +553,12 @@ impl ResultColumn {
         }
     }
 
+    /// Return the name of the column.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Return the type of the column.
     pub fn sql_type(&self) -> &MonetType {
         &self.typ
     }

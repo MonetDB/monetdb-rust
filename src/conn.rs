@@ -5,7 +5,6 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 //
 // Copyright 2024 MonetDB Foundation
-#![allow(dead_code)]
 
 use std::sync::{
     atomic::{self, AtomicBool},
@@ -15,12 +14,19 @@ use std::sync::{
 use crate::{
     cursor::{delayed::DelayedCommands, Cursor, CursorError, CursorResult},
     framing::{
-        connecting::{establish_connection, ConnResult},
+        connecting::{establish_connection, ConnectResult},
         ServerSock, ServerState,
     },
     parms::Parameters,
 };
 
+/// A connection to MonetDB.
+///
+/// The [top-level documentation](`super#examples`) contains some examples of how a
+/// connection can be created.
+///
+/// Executing queries on a connection is done with a [`Cursor`] object, which
+/// can be obtained using the [`cursor()`](`Connection::cursor`) method.
 pub struct Connection(Arc<Conn>);
 
 pub(crate) struct Conn {
@@ -36,7 +42,8 @@ struct Locked {
 }
 
 impl Connection {
-    pub fn new(parameters: Parameters) -> ConnResult<Connection> {
+    /// Create a new connection based on the given [`Parameters`] object.
+    pub fn new(parameters: Parameters) -> ConnectResult<Connection> {
         let (sock, state, delayed) = establish_connection(parameters)?;
 
         let reply_size = state.reply_size;
@@ -56,15 +63,22 @@ impl Connection {
         Ok(connection)
     }
 
-    pub fn connect_url(url: impl AsRef<str>) -> ConnResult<Connection> {
+    /// Create a new connection based on the given URL.
+    pub fn connect_url(url: impl AsRef<str>) -> ConnectResult<Connection> {
         let parms = Parameters::from_url(url.as_ref())?;
         Self::new(parms)
     }
 
+    /// Create a new [`Cursor`] for this connection
     pub fn cursor(&self) -> Cursor {
         Cursor::new(Arc::clone(&self.0))
     }
 
+    /// Close the connection.
+    ///
+    /// Any remaining cursors will not be able to fetch new data.
+    /// They may still be able to return some already retrieved data but
+    /// you shouldn't count on that.
     pub fn close(self) {
         drop(self);
     }

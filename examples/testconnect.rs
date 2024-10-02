@@ -11,7 +11,7 @@ use std::fmt::Write;
 use anyhow::{bail, Result as AResult};
 use log::info;
 
-use monetdb::{conn::Connection, cursor::Cursor, parms::Parameters};
+use monetdb::{parms::Parameters, Connection, Cursor};
 
 const DEFAULT_QUERY: &str = r##"
 DROP TABLE IF EXISTS foo;

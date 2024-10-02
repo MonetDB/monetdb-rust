@@ -293,11 +293,11 @@ impl RowSet {
         };
         match f(s) {
             Ok(t) => Ok(Some(t)),
-            Err(e) => Err(CursorError::Conversion(
-                col,
-                type_name::<T>(),
-                e.to_string(),
-            )),
+            Err(e) => Err(CursorError::Conversion {
+                colnr: col,
+                expected_type: type_name::<T>(),
+                message: e.to_string(),
+            }),
         }
     }
 
@@ -355,23 +355,23 @@ fn test_int_getters() {
     assert_eq!(rs.advance(), Ok(true));
 
     assert_eq!(rs.get_i8(0), Ok(Some(9i8)));
-    assert_matches!(rs.get_i8(1), Err(CursorError::Conversion(_, _, _)));
-    assert_matches!(rs.get_i8(2), Err(CursorError::Conversion(_, _, _)));
+    assert_matches!(rs.get_i8(1), Err(CursorError::Conversion { .. }));
+    assert_matches!(rs.get_i8(2), Err(CursorError::Conversion { .. }));
     assert_eq!(rs.get_i8(3), Ok(None));
 
     assert_eq!(rs.get_u8(0), Ok(Some(9u8)));
-    assert_matches!(rs.get_u8(1), Err(CursorError::Conversion(_, _, _)));
-    assert_matches!(rs.get_u8(2), Err(CursorError::Conversion(_, _, _)));
+    assert_matches!(rs.get_u8(1), Err(CursorError::Conversion { .. }));
+    assert_matches!(rs.get_u8(2), Err(CursorError::Conversion { .. }));
     assert_eq!(rs.get_u8(3), Ok(None));
 
     assert_eq!(rs.get_i16(0), Ok(Some(9i16)));
-    assert_matches!(rs.get_i16(1), Err(CursorError::Conversion(_, _, _)));
-    assert_matches!(rs.get_i16(2), Err(CursorError::Conversion(_, _, _)));
+    assert_matches!(rs.get_i16(1), Err(CursorError::Conversion { .. }));
+    assert_matches!(rs.get_i16(2), Err(CursorError::Conversion { .. }));
     assert_eq!(rs.get_i16(3), Ok(None));
 
     assert_eq!(rs.get_u16(0), Ok(Some(9u16)));
-    assert_matches!(rs.get_u16(1), Err(CursorError::Conversion(_, _, _)));
-    assert_matches!(rs.get_u16(2), Err(CursorError::Conversion(_, _, _)));
+    assert_matches!(rs.get_u16(1), Err(CursorError::Conversion { .. }));
+    assert_matches!(rs.get_u16(2), Err(CursorError::Conversion { .. }));
     assert_eq!(rs.get_u16(3), Ok(None));
 
     assert_eq!(rs.get_i32(0), Ok(Some(9i32)));
@@ -381,7 +381,7 @@ fn test_int_getters() {
 
     assert_eq!(rs.get_u32(0), Ok(Some(9u32)));
     assert_eq!(rs.get_u32(1), Ok(Some(87654)));
-    assert_matches!(rs.get_u32(2), Err(CursorError::Conversion(_, _, _)));
+    assert_matches!(rs.get_u32(2), Err(CursorError::Conversion { .. }));
     assert_eq!(rs.get_u32(3), Ok(None));
 
     assert_eq!(rs.get_i64(0), Ok(Some(9i64)));
@@ -391,7 +391,7 @@ fn test_int_getters() {
 
     assert_eq!(rs.get_u64(0), Ok(Some(9u64)));
     assert_eq!(rs.get_u64(1), Ok(Some(87654)));
-    assert_matches!(rs.get_u64(2), Err(CursorError::Conversion(_, _, _)));
+    assert_matches!(rs.get_u64(2), Err(CursorError::Conversion { .. }));
     assert_eq!(rs.get_u64(3), Ok(None));
 
     assert_eq!(rs.get_i128(0), Ok(Some(9i128)));
@@ -401,7 +401,7 @@ fn test_int_getters() {
 
     assert_eq!(rs.get_u128(0), Ok(Some(9u128)));
     assert_eq!(rs.get_u128(1), Ok(Some(87654)));
-    assert_matches!(rs.get_u128(2), Err(CursorError::Conversion(_, _, _)));
+    assert_matches!(rs.get_u128(2), Err(CursorError::Conversion { .. }));
     assert_eq!(rs.get_u128(3), Ok(None));
 
     assert_eq!(rs.get_isize(0), Ok(Some(9isize)));
@@ -411,7 +411,7 @@ fn test_int_getters() {
 
     assert_eq!(rs.get_usize(0), Ok(Some(9usize)));
     assert_eq!(rs.get_usize(1), Ok(Some(87654)));
-    assert_matches!(rs.get_usize(2), Err(CursorError::Conversion(_, _, _)));
+    assert_matches!(rs.get_usize(2), Err(CursorError::Conversion { .. }));
     assert_eq!(rs.get_usize(3), Ok(None));
 }
 

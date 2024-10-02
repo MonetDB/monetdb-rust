@@ -102,6 +102,7 @@ impl<R: Read> MapiReader<R> {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn read_max(&mut self, mut buffer: &mut [u8]) -> io::Result<usize> {
         let orig_len = buffer.len();
         while !buffer.is_empty() {
@@ -128,12 +129,14 @@ impl<R: Read> MapiReader<R> {
         reader.finish()
     }
 
+    #[allow(dead_code)]
     pub fn to_string(rd: R, buffer: &mut String) -> io::Result<R> {
         let mut reader = Self::new(rd);
         reader.read_to_string(buffer)?;
         reader.finish()
     }
 
+    #[allow(dead_code)]
     pub fn to_limited(rd: R, buffer: &mut Vec<u8>, limit: usize) -> io::Result<R> {
         let mut reader = Self::new(rd);
         (&mut reader).take(limit as u64).read_to_end(buffer)?;

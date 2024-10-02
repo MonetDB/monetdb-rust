@@ -14,6 +14,13 @@ use super::*;
 
 type Cowstr = Cow<'static, str>;
 
+/// Identifies all things that can be configured when connecting to MonetDB, for
+/// example [`Host`][`Parm::Host`], [`Port`][`Parm::Port`] and
+/// [`Password`][`Parm::Password`].
+///
+/// Note: Rustdoc displays numeric values for the enum variants but these must
+/// not be considered part of the API. For a stable way to obtain a numeric value for
+/// a Parm, consider [`Parm::index`].
 #[derive(
     Debug,
     PartialEq,
@@ -68,6 +75,7 @@ pub enum Parm {
 }
 
 impl Parm {
+    /// Return the name of this parameter when used in a URL.
     pub fn as_str(&self) -> &'static str {
         match self {
             Parm::Database => "database",
@@ -100,6 +108,8 @@ impl Parm {
         }
     }
 
+    /// Convert the parameter into a number that can be used to index
+    /// an array of values.
     pub const fn index(&self) -> usize {
         let idx = unsafe {
             // SAFETY: Self is repr(u8) so it will fit and be one-to-one
@@ -114,19 +124,28 @@ impl Parm {
         idx
     }
 
+    /// Returns whether the parameter is a core parameter. There are six core
+    /// parameters: tls, host, port, database, tableschema and table. The core
+    /// parameters are not allowed to occur in the query string of a URL.
     pub fn is_core(&self) -> bool {
         use Parm::*;
         matches!(self, Tls | Host | Port | Database | TableSchema | Table)
     }
 
+    /// Returns whether the parameter must be suppressed when parameters
+    /// are for example logged. Currently true for User and Password.
     pub fn is_sensitive(&self) -> bool {
         matches!(self, Parm::User | Parm::Password)
     }
+
+    /// If `Parm::from_str` fails, this method determines whether this
+    /// should be ignored (true) or considered an error (false).
     pub fn ignored(name: &str) -> bool {
         name.contains('_')
     }
 
-    pub fn parm_type(&self) -> ParmType {
+    #[allow(dead_code)]
+    pub(crate) fn parm_type(&self) -> ParmType {
         use Parm::*;
         use ParmType::*;
         match self {
@@ -136,11 +155,13 @@ impl Parm {
         }
     }
 
-    pub fn require_bool(&self) -> bool {
+    #[allow(dead_code)]
+    pub(crate) fn require_bool(&self) -> bool {
         matches!(self, Parm::Tls | Parm::Autocommit)
     }
 
-    pub fn require_int(&self) -> bool {
+    #[allow(dead_code)]
+    pub(crate) fn require_int(&self) -> bool {
         matches!(self, Parm::Port | Parm::ReplySize | Parm::Timezone)
     }
 }
@@ -192,6 +213,11 @@ pub enum ParmType {
     Str,
 }
 
+/// Try to convert a string to a boolean.
+///
+/// Case insensitive.  The strings "yes", "true" and "on"
+/// map to `true` and the strings "no", "false" and "off"
+/// map to `false`.
 pub fn parse_bool(s: &str) -> Option<bool> {
     for yes in ["yes", "true", "on"] {
         if yes.eq_ignore_ascii_case(s) {
@@ -214,6 +240,8 @@ pub fn render_bool(b: bool) -> &'static str {
     }
 }
 
+/// Type [`Value`] can hold the possible values for these parameters, glossing over
+/// the distinction between strings, numbers and booleans.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Value {
     Bool(bool),
@@ -222,10 +250,15 @@ pub enum Value {
 }
 
 impl Value {
+    /// Construct a `Value` from a `&str` without copying.
+    /// If you use `Value::from_str`, the `from_str` cannot notice
+    /// that the lifetime is static so it would copy the string
+    /// instead of putting the static reference into a `Cow::Borrowed`.
     pub const fn from_static(s: &'static str) -> Value {
         Value::Str(Cow::Borrowed(s))
     }
 
+    /// Try to convert the value to a `bool`
     pub fn bool_value(&self) -> Option<bool> {
         match self {
             Value::Bool(b) => Some(*b),
@@ -234,6 +267,7 @@ impl Value {
         }
     }
 
+    /// Try to convert the value to an `bool`
     pub fn int_value(&self) -> Option<i64> {
         match self {
             Value::Bool(_) => None,
@@ -242,7 +276,7 @@ impl Value {
         }
     }
 
-    pub fn binary_value(&self) -> Option<u16> {
+    pub(crate) fn binary_value(&self) -> Option<u16> {
         match self.bool_value() {
             Some(false) => Some(0),
             Some(true) => Some(65535),
@@ -250,6 +284,9 @@ impl Value {
         }
     }
 
+    /// Render the value as a string. This yields a `Cow::Borrowed` value
+    /// if it's set as a string or bool but it must allocate a new `Cow::Owned`
+    /// value if it's a number.
     pub fn str_value(&self) -> Cow<'_, str> {
         match self {
             Value::Bool(b) => Cow::Borrowed(render_bool(*b)),
@@ -258,6 +295,7 @@ impl Value {
         }
     }
 
+    /// Like [`str_value`], but takes ownership of the value.
     pub fn into_str(self) -> Cowstr {
         match self {
             Value::Bool(b) => render_bool(b).into(),
@@ -266,6 +304,10 @@ impl Value {
         }
     }
 
+    /// Verify if the Value can be assigned to the given Parm.
+    ///
+    /// For example, it can only be assigned to [`Parm::Autocommit`]
+    /// if it's a boolean or can be converted to a boolean.
     pub fn verify_assign(&self, parm: Parm) -> ParmResult<()> {
         let parm_type = parm.parm_type();
         // in most cases we check if the value can be converted,
@@ -375,6 +417,9 @@ impl From<usize> for Value {
     }
 }
 
+/// If you want to create a table indexed by [`Parm`], the table must
+/// have at least this number of elements. Use [`Parm::index`] to convert
+/// Parms to usizes.
 pub const PARM_TABLE_SIZE: usize = 27;
 
 #[test]
@@ -387,9 +432,15 @@ fn test_parm_table_size() {
     }
 }
 
-/// A [`Parameters``] object holds unvalidated connection parameters.
-/// It also helps invalidate existing user name and password when one is
-/// overridden and not the other, see [`Parameters::boundary`].
+/// Holds unvalidated connection parameters.
+///
+/// This is basically a mapping from [`Parm`] to [`Value`] with lots of helper
+/// methods. Call [`Parameters::validate`] to validate and interpret them.
+///
+/// This type also keeps track of when user name and password have last been
+/// set. When [`Parameters::boundary`] is called and only one has been touched,
+/// the other is cleared. This happens for example before and after parsing a
+/// URL.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Parameters {
     parms: [Value; PARM_TABLE_SIZE],
@@ -404,6 +455,9 @@ impl Default for Parameters {
     }
 }
 
+/// A constant holding the default values of the parameters.
+/// Most are clear. Can be used in a const context.
+/// See also [`THE_DEFAULT_PARAMETERS`].
 pub const DEFAULT_PARAMETERS: Parameters = {
     let parms = array![i => default_parameter_value_by_index(i); PARM_TABLE_SIZE];
     Parameters {
@@ -414,6 +468,9 @@ pub const DEFAULT_PARAMETERS: Parameters = {
     }
 };
 
+/// A static value containing the default parameters.
+/// You can take `&static` references of it.
+/// See also [`DEFAULT_PARAMETERS`].
 static THE_DEFAULT_PARAMETERS: Parameters = DEFAULT_PARAMETERS;
 
 // This function is only used in the definition of DEFAULT_PARAMETERS. It's the
@@ -447,6 +504,8 @@ const fn default_parameter_value_by_index(idx: usize) -> Value {
 }
 
 impl Parameters {
+    /// Create a new Parameters object with database, user name and password
+    /// initialized to the given values.
     pub fn basic(database: &str, user: &str, password: &str) -> ParmResult<Parameters> {
         use Parm::*;
         let mut parms = Parameters::default();
@@ -465,12 +524,17 @@ impl Parameters {
         Ok(parms)
     }
 
+    /// Create a new Parameters object with database, user name and password
+    /// initialized from the given URL.
     pub fn from_url(url: &str) -> ParmResult<Parameters> {
         let mut parms = Parameters::default();
         parms.apply_url(url)?;
         Ok(parms)
     }
 
+    /// Replace the existing value of a Parm with a new value.
+    ///
+    /// Primitive on which all setters and [`Parameters::take`] are based.
     pub fn replace(&mut self, parm: Parm, value: impl Into<Value>) -> ParmResult<Value> {
         match parm {
             Parm::User => self.user_changed = true,
@@ -485,41 +549,52 @@ impl Parameters {
         Ok(value)
     }
 
+    /// Set a Parm to a new value.
     pub fn set(&mut self, parm: Parm, value: impl Into<Value>) -> ParmResult<()> {
         self.replace(parm, value)?;
         Ok(())
     }
 
+    /// Set a Parm to its default value.
     pub fn reset(&mut self, parm: Parm) {
         self.set(parm, THE_DEFAULT_PARAMETERS.get(parm).clone())
             .unwrap();
     }
 
+    /// Retrieve the value of a Parm as a [`Value`].
     pub fn get(&self, parm: Parm) -> &Value {
         &self.parms[parm.index()]
     }
 
+    /// Retrieve the value of a Parm as a `bool`.
     pub fn get_bool(&self, parm: Parm) -> ParmResult<bool> {
         self.get(parm)
             .bool_value()
             .ok_or(ParmError::InvalidBool(parm))
     }
 
+    /// Retrieve the value of a Parm as an `i64`.
     pub fn get_int(&self, parm: Parm) -> ParmResult<i64> {
         self.get(parm)
             .int_value()
             .ok_or(ParmError::InvalidInt(parm))
     }
 
+    /// Retrieve the value of a Parm as a `&str`.
     pub fn get_str(&self, parm: Parm) -> ParmResult<Cow<'_, str>> {
         Ok(self.get(parm).str_value())
     }
 
+    /// Take the value of the Parm out of this Parameters object, replacing it with its
+    /// default value. Can sometimes be used to save an allocation.
     pub fn take(&mut self, parm: Parm) -> Value {
         self.replace(parm, THE_DEFAULT_PARAMETERS.get(parm).clone())
             .unwrap()
     }
 
+    /// Set the value of a Parm which is specified by name, as a `&str` rather
+    /// than a `Parm`. If the name is not known, [`Parm::ignored`] is used to
+    /// decide whether that's an error or a no-op.
     pub fn set_named(&mut self, parm_name: &str, value: impl Into<Value>) -> ParmResult<()> {
         let Ok(parm) = Parm::from_str(parm_name) else {
             if Parm::ignored(parm_name) {
@@ -531,6 +606,7 @@ impl Parameters {
         self.set(parm, value)
     }
 
+    /// Returns whether the given Parm currently has its default value.
     pub fn is_default(&self, parm: Parm) -> bool {
         let value = self.get(parm);
         let default_value = THE_DEFAULT_PARAMETERS.get(parm);
@@ -545,6 +621,8 @@ impl Parameters {
         }
     }
 
+    /// If exactly one of user name and password has been set since
+    /// the previous call to this method, clear the other.
     pub fn boundary(&mut self) {
         match (self.user_changed, self.password_changed) {
             (true, false) => self.reset(Parm::Password),
@@ -555,6 +633,9 @@ impl Parameters {
         self.password_changed = false;
     }
 
+    /// Overwrite Parms with values found in the given URL.
+    ///
+    /// Supports `monetdb://`, `monetdbs://` and `mapi:monetdb://` URLs.
     pub fn apply_url(&mut self, url: &str) -> ParmResult<()> {
         self.boundary();
         parse_any_url(self, url)?;
@@ -562,6 +643,8 @@ impl Parameters {
         Ok(())
     }
 
+    /// Check if the parameters have sensible values and if so,
+    /// return a [`Validated`] object for them.
     pub fn validate(&self) -> ParmResult<Validated<'_>> {
         Validated::new(self)
     }
@@ -759,14 +842,27 @@ impl Parameters {
     }
 }
 
+/// Indicates how the TLS certificate of the server must be verified.
 #[derive(Debug, PartialEq, Eq)]
 pub enum TlsVerify {
+    /// No verification.
     Off,
+    /// Compute the SHA-256 hash of the DER form of the leave certificate and check if it starts
+    /// with the hexadecimal digits given by [`Parm::CertHash`].
     Hash,
+    /// Verify that the server certificate is signed by the certificate given by [`Parm::Cert`].
     Cert,
+    /// Use the certificates in the system certificate store to determine if the
+    /// server certificate is valid.
     System,
 }
 
+/// Derived from a [`Parameters`], holds validated and processed connection
+/// parameters.
+///
+/// For example, based on the combination of `host`, `port`, `database` and
+/// `sock` it knows whether a connection must be made to a Unix Domain socket, a
+/// TCP socket or both.
 #[derive(Debug)]
 pub struct Validated<'a> {
     pub database: Cow<'a, str>,
@@ -1017,10 +1113,12 @@ impl Validated<'_> {
 }
 
 impl Parameters {
+    /// Convert the Parameters into a URL including user name and password.
     pub fn url_with_credentials(&self) -> ParmResult<String> {
         url_from_parms(self, Parm::iter())
     }
 
+    /// Convert the Parameters into a URL not including user name and password.
     pub fn url_without_credentials(&self) -> ParmResult<String> {
         let selection = Parm::iter().filter(|p| !p.is_sensitive());
         url_from_parms(self, selection)
