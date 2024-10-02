@@ -64,8 +64,8 @@ impl Connection {
     }
 
     /// Create a new connection based on the given URL.
-    pub fn connect_url(url: impl AsRef<str>) -> ConnectResult<Connection> {
-        let parms = Parameters::from_url(url.as_ref())?;
+    pub fn connect_url(url: &str) -> ConnectResult<Connection> {
+        let parms = Parameters::from_url(url)?;
         Self::new(parms)
     }
 
