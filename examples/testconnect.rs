@@ -19,7 +19,7 @@ CREATE TABLE foo(i INT, t VARCHAR(10));
 SELECT value FROM sys.generate_series(0,5);
 INSERT INTO foo VALUES (1, 'one'), (42, 'forty-two'), (-1, R'a\"b');
 SELECT * FROM foo;
-SELECT * FROM sys.unclosed_result_sets();
+-- SELECT * FROM sys.unclosed_result_sets();
 "##;
 
 fn main() -> AResult<()> {
@@ -41,6 +41,7 @@ fn main() -> AResult<()> {
     let mut queries: Vec<String> = arg_iter.collect();
     if queries.is_empty() {
         queries.push(DEFAULT_QUERY.trim().to_string());
+        queries.push("SELECT 42".into());
     }
 
     for query in queries {
