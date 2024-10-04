@@ -91,6 +91,14 @@ Not implemented yet but planned:
 
 * PREPARE STATEMENT
 
+* Async, seems to be needed for [sqlx]
+
+* Integration with database frameworks such as [sqlx] and [Diesel].
+  There does not seem to be a JDBC equivalent for Rust.
+
+[sqlx]: https://crates.io/crates/sqlx
+
+[Diesel]: https://crates.io/crates/diesel
 
 Optional features
 -----------------

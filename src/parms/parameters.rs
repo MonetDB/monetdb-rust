@@ -295,7 +295,7 @@ impl Value {
         }
     }
 
-    /// Like [`str_value`], but takes ownership of the value.
+    /// Like [`str_value`][`Self::str_value`], but takes ownership of the value.
     pub fn into_str(self) -> Cowstr {
         match self {
             Value::Bool(b) => render_bool(b).into(),
