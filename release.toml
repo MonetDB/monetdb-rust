@@ -1,0 +1,19 @@
+# Config for the 'cargo release' command.
+# This can be installed with `cargo install cargo-release`.
+# Documentation: https://github.com/crate-ci/cargo-release/blob/master/docs/reference.md
+
+# for the time being we push and publish manually
+push = false
+publish = false
+
+pre-release-hook = [ "./checklicense.py", "--check" ]
+pre-release-commit-message = "Release {{crate_name}} version {{version}}"
+tag = true
+tag-message = "Release {{crate_name}} {{version}}"
+
+[[pre-release-replacements]]
+file = "CHANGELOG.md"
+search = "## mapiproxy NEXTVERSION - .*"
+exactly = 1
+replace = "## mapiproxy NEXTVERSION - YYYY-MM-DD\n\n\n## mapiproxy {{version}} - {{date}}"
+

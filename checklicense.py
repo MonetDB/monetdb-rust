@@ -21,6 +21,7 @@ def find_files_to_check():
         ('checklicense.py', ''),
         ('.gitignore', ''),
         ('Cargo.toml', ''),
+        ('release.toml', ''),
         ('LICENSE', ''),
         ('TODO.org', ''),
     ]

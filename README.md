@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 // host=Some("totoro") clientpid=Some(1914127) client=Some("monetdb-rust 0.1.1") remark=None
 ```
 
-You can also use a [`Parameters`] object to fine tune the connection parameters:
+You can also use a `Parameters` object to fine tune the connection parameters:
 
 ```rust
 # use std::error::Error;
@@ -55,7 +55,7 @@ Current status
 * Support for MonetDB Jun2020 (11.37.7) and higher. Older versions are highly
   likely to work but haven't been tested. If you need this, just ask.
 
-* Rust 1.81 and higher. (TODO: check this)
+* Rust 1.80 and higher, older versions have not yet been tested.
 
 * The full `monetdb://` connection URL syntax is supported, though not all features have been implemented.
 

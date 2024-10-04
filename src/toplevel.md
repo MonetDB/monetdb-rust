@@ -52,7 +52,7 @@ Current status
 * Support for MonetDB Jun2020 (11.37.7) and higher. Older versions are highly
   likely to work but haven't been tested. If you need this, just ask.
 
-* Rust 1.81 and higher. (TODO: check this)
+* Rust 1.80 and higher, older versions have not yet been tested.
 
 * The full `monetdb://` connection URL syntax is supported, though not all features have been implemented.
 

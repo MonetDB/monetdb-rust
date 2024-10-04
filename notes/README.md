@@ -4,10 +4,20 @@ Design notes
 Having a coherent and up to date design document is a bit too much at this point
 but it's a good idea to keep some notes.
 
-1. [getting-started](./202409-001-getting-started.md)
+Favorites
+---------
 
-2. [name-notes](./202409-naming.md)
+*. [how to release](./202410-how-to-release.md)
 
-3. [license](./202410-license.md)
+In chronological order
+----------------------
 
-4. [status](./202410-status.md)
+*. [getting-started](./202409-001-getting-started.md)
+
+*. [name-notes](./202409-naming.md)
+
+*. [license](./202410-license.md)
+
+*. [status](./202410-status.md)
+
+*. [how to release](./202410-how-to-release.md)
