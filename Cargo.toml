@@ -21,6 +21,11 @@ repository = "https://github.com/MonetDB/monetdb-rust"
 # needed for 'cargo flamegraph'
 #debug = true
 
+[[test]]
+name = "ci"
+path = "tests/ci/mod.rs"
+harness = true
+
 
 [features]
 default = []   # doesn't yet include "rustls"
