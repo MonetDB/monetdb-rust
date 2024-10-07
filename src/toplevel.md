@@ -7,7 +7,7 @@ time.
 Examples
 --------
 
-```rust
+```rust,no_run
 use std::error::Error;
 use monetdb::Connection;
 
@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 You can also use a [`Parameters`] object to fine tune the connection parameters:
 
-```rust
+```rust,no_run
 # use std::error::Error;
 use monetdb::{Parameters, Connection};
 # fn main() -> Result<(), Box<dyn Error>> {
