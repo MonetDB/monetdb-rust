@@ -94,6 +94,8 @@ impl fmt::Display for Endian {
 
 fn connect_unix_socket(parms: &Validated) -> io::Result<ServerSock> {
     let path = parms.connect_unix.as_ref();
+    // UnixStream has no connect_timeout method, but unix domain sockets
+    // are unlikely to hang anyway.
     match UnixStream::connect(path) {
         Ok(mut s) => {
             debug!("connected to {path}");
@@ -110,10 +112,17 @@ fn connect_unix_socket(parms: &Validated) -> io::Result<ServerSock> {
 fn connect_tcp_socket(parms: &Validated) -> io::Result<ServerSock> {
     let host = parms.connect_tcp.as_ref();
     let port = parms.connect_port;
+    let timeout = parms.connect_timeout;
 
     let mut err = None;
     for a in (host, port).to_socket_addrs()? {
-        match TcpStream::connect(a) {
+        // Deal with the difference between connect() and connect_timeout().
+        let attempt = if let Some(duration) = timeout {
+            TcpStream::connect_timeout(&a, duration)
+        } else {
+            TcpStream::connect(a)
+        };
+        match attempt {
             Err(e) => {
                 debug!("{a}: {e}");
                 err = Some(e);

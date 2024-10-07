@@ -7,6 +7,7 @@
 // Copyright 2024 MonetDB Foundation
 use array_macro::array;
 use std::mem;
+use std::time::Duration;
 
 use urlparser::{is_our_url, parse_any_url, url_from_parms};
 
@@ -58,6 +59,8 @@ pub enum Parm {
     Timezone,
 
     // Specific to this crate
+    #[enumeration(rename = "connect_timeout")]
+    ConnectTimeout,
     #[enumeration(rename = "client_info")]
     ClientInfo,
     #[enumeration(rename = "client_application")]
@@ -96,6 +99,7 @@ impl Parm {
             Parm::Sock => "sock",
             Parm::SockDir => "sockdir",
             Parm::Timezone => "timezone",
+            Parm::ConnectTimeout => "connect_timeout",
             Parm::ClientInfo => "client_info",
             Parm::ClientApplication => "client_application",
             Parm::ClientRemark => "client_remark",
@@ -150,7 +154,7 @@ impl Parm {
         use ParmType::*;
         match self {
             Tls | Autocommit | ClientInfo => Bool,
-            Port | ReplySize | Timezone | MaxPrefetch => Int,
+            Port | ReplySize | Timezone | MaxPrefetch | ConnectTimeout => Int,
             _ => Str,
         }
     }
@@ -192,6 +196,7 @@ fn test_parm_names() {
     assert_eq!(Parm::from_str("sock"), Ok(Parm::Sock));
     assert_eq!(Parm::from_str("sockdir"), Ok(Parm::SockDir));
     assert_eq!(Parm::from_str("timezone"), Ok(Parm::Timezone));
+    assert_eq!(Parm::from_str("connect_timeout"), Ok(Parm::ConnectTimeout));
     assert_eq!(Parm::from_str("client_info"), Ok(Parm::ClientInfo));
     assert_eq!(
         Parm::from_str("client_application"),
@@ -420,7 +425,7 @@ impl From<usize> for Value {
 /// If you want to create a table indexed by [`Parm`], the table must
 /// have at least this number of elements. Use [`Parm::index`] to convert
 /// Parms to usizes.
-pub const PARM_TABLE_SIZE: usize = 27;
+pub const PARM_TABLE_SIZE: usize = 30;
 
 #[test]
 fn test_parm_table_size() {
@@ -814,6 +819,15 @@ impl Parameters {
         Ok(self)
     }
 
+    pub fn set_connect_timeout(&mut self, value: impl Into<i64>) -> ParmResult<()> {
+        self.set(Parm::ConnectTimeout, value.into())
+    }
+
+    pub fn with_connect_timeout(mut self, value: impl Into<i64>) -> ParmResult<Parameters> {
+        self.set_connect_timeout(value)?;
+        Ok(self)
+    }
+
     pub fn set_client_info(&mut self, value: &str) -> ParmResult<()> {
         self.set(Parm::ClientInfo, value)
     }
@@ -887,6 +901,7 @@ pub struct Validated<'a> {
     pub connect_clientkey: Cow<'a, str>,
     pub connect_clientcert: Cow<'a, str>,
     pub connect_binary: u16,
+    pub connect_timeout: Option<Duration>,
 }
 
 impl Validated<'_> {
@@ -915,6 +930,7 @@ impl Validated<'_> {
 
         let raw_timezone: i64 = parms.get_int(Timezone)?;
         let raw_binary: &Value = parms.get(Binary);
+        let raw_connect_timeout: Option<i64> = parms.get(ConnectTimeout).int_value();
 
         let raw_client_info = parms.get_bool(ClientInfo)?;
         let raw_client_application = parms.get_str(ClientApplication)?;
@@ -1045,6 +1061,11 @@ impl Validated<'_> {
             None
         };
 
+        let connect_timeout = match raw_connect_timeout {
+            Some(i @ 1..) => Some(Duration::from_secs(i as u64)),
+            _ => None,
+        };
+
         let Ok(replysize) = raw_replysize.try_into() else {
             return Err(ParmError::InvalidInt(Parm::ReplySize));
         };
@@ -1061,6 +1082,7 @@ impl Validated<'_> {
             language: raw_language,
             replysize,
             schema: raw_schema,
+            connect_timeout,
             client_info: raw_client_info,
             client_application: raw_client_application,
             client_remark: raw_client_remark,
