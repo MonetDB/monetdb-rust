@@ -270,12 +270,16 @@ pub struct ResultSet {
 
 impl Default for ReplyParser {
     fn default() -> Self {
-        ReplyParser::Exhausted(Vec::with_capacity(8192))
+        ReplyParser::Exhausted(vec![])
     }
 }
 
 impl ReplyParser {
-    pub fn new(vec: Vec<u8>) -> RResult<Self> {
+    pub fn new(mut vec: Vec<u8>) -> RResult<Self> {
+        let min_cap = 8192;
+        if vec.capacity() < min_cap {
+            vec.reserve(min_cap - vec.capacity());
+        }
         let buf = ReplyBuf::new(vec);
         Self::parse(buf)
     }

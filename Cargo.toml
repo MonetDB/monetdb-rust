@@ -16,6 +16,12 @@ repository = "https://github.com/MonetDB/monetdb-rust"
 [lib]
 # doctest = false
 
+
+[profile.release]
+# needed for 'cargo flamegraph'
+#debug = true
+
+
 [features]
 default = []   # doesn't yet include "rustls"
 rustls = [ "dep:rustls", "dep:rustls-platform-verifier" ]
