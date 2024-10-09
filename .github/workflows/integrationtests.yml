@@ -1,0 +1,33 @@
+# Run the integration tests with various versions of MonetDB
+name: Integration tests
+
+on:
+  push:
+    branch:
+    pull_request:
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+
+  monetdb_version:
+    runs-on: ubuntu-latest
+    container: python:3.11
+    env:
+      CI_SERVER_URL: monetdb://monetdb/monetdb
+    strategy:
+      fail-fast: false
+      matrix:
+        monetdbversion: [ default, Aug2024, Jun2020 ]
+    services:
+      monetdb:
+        image: "monetdb/dev-builds:${{ matrix.monetdbversion }}"
+        env:
+          MDB_DB_ADMIN_PASS: monetdb
+        ports:
+        - 50000:50000
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: cargo test --test ci

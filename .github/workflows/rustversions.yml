@@ -1,0 +1,32 @@
+# Run doc tests, unit tests and clippy on various Rust versions
+name: Rust versions
+
+on:
+  push:
+    branch:
+    pull_request:
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+
+  rust_version:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # MSRV is currently 1.80.
+        rustversion: [ stable, nightly, beta, 1.80.1 ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup install ${{ matrix.rustversion }}
+
+      - run: cargo +${{ matrix.rustversion }} test --lib --examples
+
+      - run: cargo +${{ matrix.rustversion }} test --doc
+
+      - run: rustup component add --toolchain ${{ matrix.rustversion }} clippy
+
+      - run: cargo +${{ matrix.rustversion }} clippy --tests -- -D warnings
+
+      - run: cargo +${{ matrix.rustversion }} tree
