@@ -154,6 +154,7 @@ pub struct ServerMetadata(Arc<InnerServerMetadata>);
 pub struct InnerServerMetadata {
     environment: HashMap<String, String>,
     version: (u16, u16, u16),
+    prehash_algo: &'static str,
 }
 
 impl ServerMetadata {
@@ -194,9 +195,17 @@ impl ServerMetadata {
             ));
         }
         let version = (major, minor, patch);
+
+        let mut prehash_algo: &'static str = "";
+        conn.0.run_locked(|state, _delayed, sock| {
+            prehash_algo = state.prehash_algo;
+            Ok(sock)
+        })?;
+
         let inner = InnerServerMetadata {
             environment,
             version,
+            prehash_algo,
         };
         let metadata = ServerMetadata(Arc::new(inner));
         Ok(metadata)
@@ -208,5 +217,9 @@ impl ServerMetadata {
 
     pub fn version(&self) -> (u16, u16, u16) {
         self.0.version
+    }
+
+    pub fn password_prehash_algo(&self) -> &str {
+        self.0.prehash_algo
     }
 }

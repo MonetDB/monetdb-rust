@@ -60,15 +60,17 @@ pub struct ServerState {
     pub reply_size: usize,
     pub time_zone_seconds: i32,
     pub sql_metadata: Option<Arc<InnerServerMetadata>>,
+    pub prehash_algo: &'static str,
 }
 
-impl Default for ServerState {
-    fn default() -> Self {
+impl ServerState {
+    fn new(prehash_algo: &'static str) -> Self {
         Self {
             initial_auto_commit: true,
             reply_size: 100,
             time_zone_seconds: 0,
             sql_metadata: None,
+            prehash_algo,
         }
     }
 }

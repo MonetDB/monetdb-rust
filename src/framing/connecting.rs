@@ -277,13 +277,15 @@ fn challenge_response(
         (&*parms.user, &*parms.password)
     };
 
-    let prehashed_password = if password.starts_with('\u{0001}') {
-        Cow::Borrowed(password)
+    let Some((prehash_algo_name, algo)) = hash_algorithms::find_algo(chal.prehash_algo) else {
+        return Err(ConnectError::UnsupportedHashAlgo(
+            chal.prehash_algo.to_string(),
+        ));
+    };
+
+    let prehashed_password = if let Some(hex_digits) = password.strip_prefix('\u{0001}') {
+        Cow::Borrowed(hex_digits)
     } else {
-        let algo_name = chal.prehash_algo;
-        let Some((_, algo)) = hash_algorithms::find_algo(algo_name) else {
-            return Err(ConnectError::UnsupportedHashAlgo(algo_name.to_string()));
-        };
         let mut hasher = algo();
         hasher.update(password.as_bytes());
         let bindigest = hasher.finalize();
@@ -313,7 +315,7 @@ fn challenge_response(
     )
     .unwrap();
 
-    let mut state = ServerState::default();
+    let mut state = ServerState::new(prehash_algo_name);
     let mut delayed = DelayedCommands::new();
 
     if parms.language == "sql" {
