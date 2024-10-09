@@ -2,6 +2,21 @@
 
 ## mapiproxy NEXTVERSION - YYYY-MM-DD
 
+New features:
+
+- Add Connection::metadata() method to information about the server.
+
+- Add connect_timeout setting.
+
+Bug fixes:
+
+- Fix build issue on Windows, Unix domain sockets are not supported there.
+
+Other:
+
+- Add integration tests, by default they try to connect to
+  `monetdb:///test-monetdb-rust`.
+
 
 ## mapiproxy 0.2.0 - 2024-10-04
 

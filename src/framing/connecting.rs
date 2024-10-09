@@ -22,7 +22,6 @@ use std::{
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 
-
 use gethostname;
 use time::UtcOffset;
 
