@@ -30,7 +30,6 @@ fn test_metadata() -> AResult<()> {
     assert!(version >= (11, 3, 3));
     assert!(version.0 >= 11);
     assert!(version.1 >= 1);
-    assert!(version.2 >= 1);
     assert_some!(metadata.env("monet_release"));
     Ok(())
 }
