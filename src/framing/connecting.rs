@@ -14,11 +14,14 @@ use std::{
     ffi::OsStr,
     io::{self, ErrorKind, Write},
     net::{TcpStream, ToSocketAddrs},
-    os::unix::net::UnixStream,
     path::PathBuf,
     process,
     str::Utf8Error,
 };
+
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+
 
 use gethostname;
 use time::UtcOffset;
@@ -58,6 +61,8 @@ pub enum ConnectError {
     Rejected(String),
     #[error("unexpected server response: {0:?}")]
     UnexpectedResponse(String),
+    #[error("Unix domain sockets are not supported on this platform")]
+    UnixDomain,
 }
 
 pub type ConnectResult<T> = Result<T, ConnectError>;
@@ -92,7 +97,13 @@ impl fmt::Display for Endian {
     }
 }
 
-fn connect_unix_socket(parms: &Validated) -> io::Result<ServerSock> {
+#[cfg(not(unix))]
+fn connect_unix_socket(_parms: &Validated) -> ConnectResult<ServerSock> {
+    Err(ConnectError::UnixDomain)
+}
+
+#[cfg(unix)]
+fn connect_unix_socket(parms: &Validated) -> ConnectResult<ServerSock> {
     let path = parms.connect_unix.as_ref();
     // UnixStream has no connect_timeout method, but unix domain sockets
     // are unlikely to hang anyway.
@@ -104,7 +115,7 @@ fn connect_unix_socket(parms: &Validated) -> io::Result<ServerSock> {
         }
         Err(e) => {
             debug!("{path}: {e}");
-            Err(e)
+            Err(e.into())
         }
     }
 }
@@ -148,7 +159,7 @@ fn connect_tcp_socket(parms: &Validated) -> io::Result<ServerSock> {
 }
 
 fn connect_socket(parms: &Validated) -> ConnectResult<ServerSock> {
-    let mut err = None;
+    let mut err: Option<ConnectError> = None;
 
     if !parms.connect_unix.is_empty() {
         match connect_unix_socket(parms) {
@@ -159,10 +170,10 @@ fn connect_socket(parms: &Validated) -> ConnectResult<ServerSock> {
     if !parms.connect_tcp.is_empty() {
         match connect_tcp_socket(parms) {
             Ok(s) => return wrap_tls(parms, s),
-            Err(e) => err = Some(e),
+            Err(e) => err = Some(e.into()),
         }
     }
-    Err(err.unwrap().into())
+    Err(err.unwrap())
 }
 
 fn wrap_tls(parms: &Validated, mut sock: ServerSock) -> ConnectResult<ServerSock> {

@@ -11,7 +11,10 @@ pub mod reading;
 pub mod tls;
 pub mod writing;
 
-use std::{error, fmt, io, net::TcpStream, os::unix::net::UnixStream, sync::Arc};
+use std::{error, fmt, io, net::TcpStream, sync::Arc};
+
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
 
 use crate::conn::InnerServerMetadata;
 
@@ -77,6 +80,7 @@ impl ServerState {
 
 trait ServerSockTrait: fmt::Debug + io::Read + io::Write + Send + 'static {}
 
+#[cfg(unix)]
 impl ServerSockTrait for UnixStream {}
 
 impl ServerSockTrait for TcpStream {}
