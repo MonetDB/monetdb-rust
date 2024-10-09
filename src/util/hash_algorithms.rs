@@ -22,18 +22,21 @@ fn new_hasher<T: Digest + DynDigest + Default + 'static>() -> Box<dyn DynDigest>
 
 type Algo = fn() -> Box<dyn DynDigest>;
 
-pub fn find_algo(comma_separated_names: &str) -> Option<(&str, Algo)> {
+pub fn find_algo(comma_separated_names: &str) -> Option<(&'static str, Algo)> {
+    let algos: &[(&'static str, Algo)] = &[
+        ("RIPEMD160", new_hasher::<ripemd::Ripemd160>),
+        ("SHA512", new_hasher::<sha2::Sha512>),
+        ("SHA384", new_hasher::<sha2::Sha384>),
+        ("SHA256", new_hasher::<sha2::Sha256>),
+        ("SHA224", new_hasher::<sha2::Sha224>),
+        // ("SHA1", new_hasher::<Sha1>),
+    ];
     for name in comma_separated_names.split(',') {
-        let constructor = match name {
-            "RIPEMD160" => new_hasher::<ripemd::Ripemd160>,
-            "SHA512" => new_hasher::<sha2::Sha512>,
-            "SHA384" => new_hasher::<sha2::Sha384>,
-            "SHA256" => new_hasher::<sha2::Sha256>,
-            "SHA224" => new_hasher::<sha2::Sha224>,
-            // "SHA1" => new_hasher::<Sha1>,
-            _ => continue,
-        };
-        return Some((name, constructor));
+        for (n, a) in algos {
+            if *n == name {
+                return Some((n, *a));
+            }
+        }
     }
     None
 }
