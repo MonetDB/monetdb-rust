@@ -55,6 +55,8 @@ pub enum CursorError {
         expected_type: &'static str,
         message: String,
     },
+    #[error("could not retrieve server metadata: {0}")]
+    Metadata(&'static str),
 }
 
 pub type CursorResult<T> = Result<T, CursorError>;

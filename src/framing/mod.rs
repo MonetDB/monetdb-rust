@@ -11,7 +11,9 @@ pub mod reading;
 pub mod tls;
 pub mod writing;
 
-use std::{error, fmt, io, net::TcpStream, os::unix::net::UnixStream};
+use std::{error, fmt, io, net::TcpStream, os::unix::net::UnixStream, sync::Arc};
+
+use crate::conn::InnerServerMetadata;
 
 pub const BLOCKSIZE: usize = 8190;
 
@@ -52,11 +54,12 @@ impl From<FramingError> for io::Error {
 
 impl error::Error for FramingError {}
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 pub struct ServerState {
     pub initial_auto_commit: bool,
     pub reply_size: usize,
     pub time_zone_seconds: i32,
+    pub sql_metadata: Option<Arc<InnerServerMetadata>>,
 }
 
 impl Default for ServerState {
@@ -65,6 +68,7 @@ impl Default for ServerState {
             initial_auto_commit: true,
             reply_size: 100,
             time_zone_seconds: 0,
+            sql_metadata: None,
         }
     }
 }

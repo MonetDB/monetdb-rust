@@ -6,9 +6,12 @@
 //
 // Copyright 2024 MonetDB Foundation
 
-use std::sync::{
-    atomic::{self, AtomicBool},
-    Arc, Mutex, TryLockError,
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{self, AtomicBool},
+        Arc, Mutex, TryLockError,
+    },
 };
 
 use crate::{
@@ -92,6 +95,26 @@ impl Connection {
             Err(TryLockError::WouldBlock) => {}
         }
     }
+
+    pub fn metadata(&mut self) -> CursorResult<ServerMetadata> {
+        let mut inner = None;
+        self.0.run_locked(|state, _delayed, sock| {
+            inner = state.sql_metadata.clone();
+            Ok(sock)
+        })?;
+        if let Some(md) = inner {
+            return Ok(ServerMetadata(md));
+        }
+
+        // create it and put it in the state
+        // (ignore harmless race condition)
+        let new_metadata = ServerMetadata::new(self)?;
+        self.0.run_locked(|state, _delayed, sock| {
+            state.sql_metadata = Some(Arc::clone(&new_metadata.0));
+            Ok(sock)
+        })?;
+        Ok(new_metadata)
+    }
 }
 
 impl Drop for Connection {
@@ -121,5 +144,69 @@ impl Conn {
             }
             Err(e) => Err(e),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ServerMetadata(Arc<InnerServerMetadata>);
+
+#[derive(Debug, Clone)]
+pub struct InnerServerMetadata {
+    environment: HashMap<String, String>,
+    version: (u16, u16, u16),
+}
+
+impl ServerMetadata {
+    fn new(conn: &mut Connection) -> CursorResult<Self> {
+        let mut cursor = conn.cursor();
+        cursor.execute("SELECT name, value FROM sys.environment")?;
+        let mut environment = HashMap::new();
+        while cursor.next_row()? {
+            let name = cursor
+                .get_str(0)?
+                .expect("sys.environment.name should not be null");
+            let value = cursor.get_str(1)?.unwrap_or("");
+            environment.insert(name.to_string(), value.to_string());
+        }
+
+        // parse version
+        let Some(v) = environment.get("monet_version") else {
+            return Err(CursorError::Metadata(
+                "'monet_version' not found in environment",
+            ));
+        };
+        let mut parts = v.split('.');
+        let mut next_part = || -> CursorResult<u16> {
+            let Some(s) = parts.next() else {
+                return Err(CursorError::Metadata(
+                    "'monet_version' does not have 3 components",
+                ));
+            };
+            s.parse()
+                .map_err(|_| CursorError::Metadata("invalid int component in 'monet_release'"))
+        };
+        let major = next_part()?;
+        let minor = next_part()?;
+        let patch = next_part()?;
+        if parts.next().is_some() {
+            return Err(CursorError::Metadata(
+                "'monet_version' has more than 3 components",
+            ));
+        }
+        let version = (major, minor, patch);
+        let inner = InnerServerMetadata {
+            environment,
+            version,
+        };
+        let metadata = ServerMetadata(Arc::new(inner));
+        Ok(metadata)
+    }
+
+    pub fn env(&self, key: &str) -> Option<&str> {
+        self.0.environment.get(key).map(String::as_ref)
+    }
+
+    pub fn version(&self) -> (u16, u16, u16) {
+        self.0.version
     }
 }
