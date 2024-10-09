@@ -134,7 +134,6 @@ impl Cursor {
 
     /// Execute the given SQL statements and place the cursor at the first
     /// reply. The results of any earlier queries on this cursor are discarded.
-
     pub fn execute(&mut self, statements: &str) -> CursorResult<()> {
         self.exhaust()?;
 
