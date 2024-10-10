@@ -12,6 +12,7 @@
 mod our_logger;
 
 mod conn;
+pub mod convert;
 mod cursor;
 mod framing;
 pub mod monettypes;

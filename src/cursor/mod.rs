@@ -12,6 +12,7 @@ pub(crate) mod delayed;
 pub(crate) mod replies;
 pub(crate) mod rowset;
 
+use std::borrow::Cow;
 use std::mem;
 use std::{io, sync::Arc};
 
@@ -20,6 +21,7 @@ use replies::{BadReply, ReplyBuf, ReplyParser, ResultColumn, ResultSet};
 use rowset::RowSet;
 
 use crate::conn::Conn;
+use crate::convert::{from_utf8, FromMonet};
 use crate::framing::reading::MapiReader;
 use crate::framing::writing::MapiBuf;
 use crate::framing::FramingError;
@@ -50,11 +52,10 @@ pub enum CursorError {
     NoResultSet,
     /// The user called the wrong typed getter, for example
     /// [`get_bool()`](`Cursor::get_bool`) on an INT column.
-    #[error("could not convert column {colnr} to {expected_type}: {message}")]
+    #[error("could not convert to {expected_type}: {message}")]
     Conversion {
-        colnr: usize,
         expected_type: &'static str,
-        message: String,
+        message: Cow<'static, str>,
     },
     #[error("could not retrieve server metadata: {0}")]
     Metadata(&'static str),
@@ -361,12 +362,35 @@ impl Cursor {
             Err(CursorError::NoResultSet)
         }
     }
+
+    pub fn get_str(&self, colnr: usize) -> CursorResult<Option<&str>> {
+        let Some(field) = self.row_set()?.get_field_raw(colnr) else {
+            return Ok(None);
+        };
+        let s = from_utf8(field)?;
+        Ok(Some(s))
+    }
+
+    pub(crate) fn get_map<F, T>(&self, colnr: usize, f: F) -> CursorResult<Option<T>>
+    where
+        F: FnOnce(&[u8]) -> CursorResult<T>,
+    {
+        let Some(field) = self.row_set()?.get_field_raw(colnr) else {
+            return Ok(None);
+        };
+        let value = f(field)?;
+        Ok(Some(value))
+    }
+
+    pub fn get<T: FromMonet>(&self, colnr: usize) -> CursorResult<Option<T>> {
+        self.get_map(colnr, |field| T::from_monet(field))
+    }
 }
 
-macro_rules! getter {
+macro_rules! define_getter {
     ($method:ident, $type:ty) => {
         pub fn $method(&self, col: usize) -> CursorResult<Option<$type>> {
-            self.row_set()?.$method(col)
+            self.get(col)
         }
     };
 }
@@ -375,22 +399,21 @@ macro_rules! getter {
 /// [`next_row()`][`Cursor::next_row`] has confirmed that that row exists.
 /// They return None if the value is NULL.
 impl Cursor {
-    getter!(get_str, &str);
-    getter!(get_bool, bool);
-    getter!(get_i8, i8);
-    getter!(get_u8, u8);
-    getter!(get_i16, i16);
-    getter!(get_u16, u16);
-    getter!(get_i32, i32);
-    getter!(get_u32, u32);
-    getter!(get_i64, i64);
-    getter!(get_u64, u64);
-    getter!(get_i128, i128);
-    getter!(get_u128, u128);
-    getter!(get_isize, isize);
-    getter!(get_usize, usize);
-    getter!(get_f32, f32);
-    getter!(get_f64, f64);
+    define_getter!(get_bool, bool);
+    define_getter!(get_i8, i8);
+    define_getter!(get_u8, u8);
+    define_getter!(get_i16, i16);
+    define_getter!(get_u16, u16);
+    define_getter!(get_i32, i32);
+    define_getter!(get_u32, u32);
+    define_getter!(get_i64, i64);
+    define_getter!(get_u64, u64);
+    define_getter!(get_i128, i128);
+    define_getter!(get_u128, u128);
+    define_getter!(get_isize, isize);
+    define_getter!(get_usize, usize);
+    define_getter!(get_f32, f32);
+    define_getter!(get_f64, f64);
 }
 
 impl Drop for Cursor {

@@ -9,6 +9,7 @@
 mod context;
 
 mod test_connecting;
+mod test_resulttypes;
 
 use anyhow::Result as AResult;
 use context::get_server;

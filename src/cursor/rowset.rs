@@ -6,18 +6,9 @@
 //
 // Copyright 2024 MonetDB Foundation
 
-use std::{
-    any::{type_name, Any},
-    fmt,
-    str::FromStr,
-};
-
 use crate::cursor::replies::BadReply;
 
-use super::{
-    replies::{from_utf8, RResult, ReplyBuf},
-    CursorError, CursorResult,
-};
+use super::replies::{RResult, ReplyBuf};
 
 #[derive(Debug)]
 pub struct RowSet {
@@ -115,52 +106,58 @@ impl RowSet {
         Some(slice)
     }
 
-    pub fn get_str(&self, idx: usize) -> CursorResult<Option<&str>> {
-        let Some(bytes) = self.get_field_raw(idx) else {
-            return Ok(None);
-        };
-        let str = from_utf8("result set field", bytes)?;
-        Ok(Some(str))
+    #[cfg(test)]
+    fn get_str(&self, idx: usize) -> Option<&str> {
+        let bytes = self.get_field_raw(idx)?;
+        let str = std::str::from_utf8(bytes).unwrap();
+        Some(str)
     }
 }
 
 #[test]
-fn test_rowset_int_and_null() {
+fn test_rowset_unquoted() {
     let testdata = "[ 11,\tNULL,\t33\t]\n";
     let mut rs = RowSet::new(ReplyBuf::new(testdata.into()), 3);
 
-    assert_eq!(rs.get_str(0), Ok(None));
-    assert_eq!(rs.get_str(1), Ok(None));
-    assert_eq!(rs.get_str(2), Ok(None));
-    assert_eq!(rs.get_str(3), Ok(None));
+    assert_eq!(rs.get_str(0), None);
+    assert_eq!(rs.get_str(1), None);
+    assert_eq!(rs.get_str(2), None);
+    assert_eq!(rs.get_str(3), None);
 
     let have_row = rs.advance().unwrap();
     assert!(have_row);
 
-    assert_eq!(rs.get_str(0), Ok(Some("11")));
-    assert_eq!(rs.get_str(1), Ok(None)); // was NULL
-    assert_eq!(rs.get_str(2), Ok(Some("33")));
-    assert_eq!(rs.get_str(3), Ok(None));
+    assert_eq!(rs.get_str(0), Some("11"));
+    assert_eq!(rs.get_str(1), None); // was NULL
+    assert_eq!(rs.get_str(2), Some("33"));
+    assert_eq!(rs.get_str(3), None);
 
     let have_row = rs.advance().unwrap();
     assert!(!have_row);
 }
 
 #[test]
-fn test_rowset_strings() {
+fn test_rowset_quoted() {
     let testdata = "[ \"\",\t\"MonetDB\",\t\"NULL\"\t]\n";
     let mut rs = RowSet::new(ReplyBuf::new(testdata.into()), 3);
 
     let have_row = rs.advance().unwrap();
     assert!(have_row);
 
-    assert_eq!(rs.get_str(0), Ok(Some("")));
-    assert_eq!(rs.get_str(1), Ok(Some("MonetDB")));
-    assert_eq!(rs.get_str(2), Ok(Some("NULL")));
-    assert_eq!(rs.get_str(3), Ok(None));
+    assert_eq!(rs.get_str(0), Some(""));
+    assert_eq!(rs.get_str(1), Some("MonetDB"));
+    assert_eq!(rs.get_str(2), Some("NULL"));
+    assert_eq!(rs.get_str(3), None);
 
     let have_row = rs.advance().unwrap();
     assert!(!have_row);
+
+    let testdata = "[ \"mon\\\"etdb\",\tNULL\t]\n";
+    let mut rs = RowSet::new(ReplyBuf::new(testdata.into()), 2);
+    assert_eq!(rs.advance(), Ok(true));
+
+    assert_eq!(rs.get_str(0), Some(r##"mon"etdb"##));
+    assert_eq!(rs.get_str(1), None);
 }
 
 #[test]
@@ -211,7 +208,7 @@ fn test_rowset_escaped_strings() {
         assert_eq!(advance, Ok(true), "advancing to row {row_nr}");
         for (col_nr, &expected_field) in expected_row.iter().enumerate() {
             let field = rs.get_str(col_nr);
-            assert_eq!(field, Ok(Some(expected_field)), "row {row_nr} col {col_nr}");
+            assert_eq!(field, Some(expected_field), "row {row_nr} col {col_nr}");
         }
     }
     assert!(!rs.advance().unwrap());
@@ -225,13 +222,13 @@ fn test_single_column() {
     let mut rs = RowSet::new(ReplyBuf::new(testdata.into()), 1);
 
     assert_eq!(rs.advance(), Ok(true));
-    assert_eq!(rs.get_str(0), Ok(Some("1")));
+    assert_eq!(rs.get_str(0), Some("1"));
 
     assert_eq!(rs.advance(), Ok(true));
-    assert_eq!(rs.get_str(0), Ok(None));
+    assert_eq!(rs.get_str(0), None);
 
     assert_eq!(rs.advance(), Ok(true));
-    assert_eq!(rs.get_str(0), Ok(Some(r#"    foo"bar     "#.trim())));
+    assert_eq!(rs.get_str(0), Some(r#"    foo"bar     "#.trim()));
 
     assert_eq!(rs.advance(), Ok(false));
 }
@@ -244,14 +241,14 @@ fn test_finish() {
     // .finish() works after we've consumed three rows
     let mut rs = RowSet::new(ReplyBuf::new(testdata.into()), 2);
     assert_eq!(rs.advance(), Ok(true));
-    assert_eq!(rs.get_str(0), Ok(Some("1")));
-    assert_eq!(rs.get_str(1), Ok(Some("2")));
+    assert_eq!(rs.get_str(0), Some("1"));
+    assert_eq!(rs.get_str(1), Some("2"));
     assert_eq!(rs.advance(), Ok(true));
-    assert_eq!(rs.get_str(0), Ok(Some("3")));
-    assert_eq!(rs.get_str(1), Ok(Some("4")));
+    assert_eq!(rs.get_str(0), Some("3"));
+    assert_eq!(rs.get_str(1), Some("4"));
     assert_eq!(rs.advance(), Ok(true));
-    assert_eq!(rs.get_str(0), Ok(Some("5")));
-    assert_eq!(rs.get_str(1), Ok(Some("6")));
+    assert_eq!(rs.get_str(0), Some("5"));
+    assert_eq!(rs.get_str(1), Some("6"));
     let buf = rs.finish();
     assert_eq!(BStr::new(buf.peek()), BStr::new("&lalala\n"));
 
@@ -272,157 +269,4 @@ fn test_finish() {
     let rs = RowSet::new(ReplyBuf::new(testdata.into()), 2);
     let buf = rs.finish();
     assert_eq!(BStr::new(buf.peek()), BStr::new("&lalala\n"));
-}
-
-macro_rules! fromstr_getter {
-    ($method:ident, $t:ty) => {
-        pub fn $method(&self, col: usize) -> CursorResult<Option<$t>> {
-            self.get_fromstr(col)
-        }
-    };
-}
-
-impl RowSet {
-    fn transform_field<F, T, E>(&self, col: usize, f: F) -> CursorResult<Option<T>>
-    where
-        F: for<'x> FnOnce(&'x str) -> Result<T, E>,
-        E: fmt::Display,
-        T: Any,
-    {
-        let Some(s) = self.get_str(col)? else {
-            return Ok(None);
-        };
-        match f(s) {
-            Ok(t) => Ok(Some(t)),
-            Err(e) => Err(CursorError::Conversion {
-                colnr: col,
-                expected_type: type_name::<T>(),
-                message: e.to_string(),
-            }),
-        }
-    }
-
-    fn get_fromstr<T>(&self, col: usize) -> CursorResult<Option<T>>
-    where
-        T: FromStr + 'static,
-        <T as FromStr>::Err: fmt::Display,
-    {
-        self.transform_field(col, |s| s.parse())
-    }
-    fromstr_getter!(get_bool, bool);
-    fromstr_getter!(get_i8, i8);
-    fromstr_getter!(get_u8, u8);
-    fromstr_getter!(get_i16, i16);
-    fromstr_getter!(get_u16, u16);
-    fromstr_getter!(get_i32, i32);
-    fromstr_getter!(get_u32, u32);
-    fromstr_getter!(get_i64, i64);
-    fromstr_getter!(get_u64, u64);
-    fromstr_getter!(get_i128, i128);
-    fromstr_getter!(get_u128, u128);
-    fromstr_getter!(get_isize, isize);
-    fromstr_getter!(get_usize, usize);
-    fromstr_getter!(get_f32, f32);
-    fromstr_getter!(get_f64, f64);
-}
-
-#[test]
-fn test_str_getters() {
-    let testdata = "[ \"mon\\\"etdb\",\tNULL\t]\n";
-    let mut rs = RowSet::new(ReplyBuf::new(testdata.into()), 2);
-    assert_eq!(rs.advance(), Ok(true));
-
-    assert_eq!(rs.get_str(0), Ok(Some(r##"mon"etdb"##)));
-    assert_eq!(rs.get_str(1), Ok(None));
-}
-
-#[test]
-fn test_bool_getter() {
-    let testdata = "[ true,\tfalse,\tNULL\t]\n";
-    let mut rs = RowSet::new(ReplyBuf::new(testdata.into()), 3);
-    assert_eq!(rs.advance(), Ok(true));
-
-    assert_eq!(rs.get_bool(0), Ok(Some(true)));
-    assert_eq!(rs.get_bool(1), Ok(Some(false)));
-    assert_eq!(rs.get_bool(2), Ok(None));
-}
-
-#[test]
-fn test_int_getters() {
-    use claims::assert_matches;
-
-    let testdata = "[ 9,\t87654,\t-87654,\tNULL\t]\n";
-    let mut rs = RowSet::new(ReplyBuf::new(testdata.into()), 4);
-    assert_eq!(rs.advance(), Ok(true));
-
-    assert_eq!(rs.get_i8(0), Ok(Some(9i8)));
-    assert_matches!(rs.get_i8(1), Err(CursorError::Conversion { .. }));
-    assert_matches!(rs.get_i8(2), Err(CursorError::Conversion { .. }));
-    assert_eq!(rs.get_i8(3), Ok(None));
-
-    assert_eq!(rs.get_u8(0), Ok(Some(9u8)));
-    assert_matches!(rs.get_u8(1), Err(CursorError::Conversion { .. }));
-    assert_matches!(rs.get_u8(2), Err(CursorError::Conversion { .. }));
-    assert_eq!(rs.get_u8(3), Ok(None));
-
-    assert_eq!(rs.get_i16(0), Ok(Some(9i16)));
-    assert_matches!(rs.get_i16(1), Err(CursorError::Conversion { .. }));
-    assert_matches!(rs.get_i16(2), Err(CursorError::Conversion { .. }));
-    assert_eq!(rs.get_i16(3), Ok(None));
-
-    assert_eq!(rs.get_u16(0), Ok(Some(9u16)));
-    assert_matches!(rs.get_u16(1), Err(CursorError::Conversion { .. }));
-    assert_matches!(rs.get_u16(2), Err(CursorError::Conversion { .. }));
-    assert_eq!(rs.get_u16(3), Ok(None));
-
-    assert_eq!(rs.get_i32(0), Ok(Some(9i32)));
-    assert_eq!(rs.get_i32(1), Ok(Some(87654)));
-    assert_eq!(rs.get_i32(2), Ok(Some(-87654)));
-    assert_eq!(rs.get_i32(3), Ok(None));
-
-    assert_eq!(rs.get_u32(0), Ok(Some(9u32)));
-    assert_eq!(rs.get_u32(1), Ok(Some(87654)));
-    assert_matches!(rs.get_u32(2), Err(CursorError::Conversion { .. }));
-    assert_eq!(rs.get_u32(3), Ok(None));
-
-    assert_eq!(rs.get_i64(0), Ok(Some(9i64)));
-    assert_eq!(rs.get_i64(1), Ok(Some(87654)));
-    assert_eq!(rs.get_i64(2), Ok(Some(-87654)));
-    assert_eq!(rs.get_i64(3), Ok(None));
-
-    assert_eq!(rs.get_u64(0), Ok(Some(9u64)));
-    assert_eq!(rs.get_u64(1), Ok(Some(87654)));
-    assert_matches!(rs.get_u64(2), Err(CursorError::Conversion { .. }));
-    assert_eq!(rs.get_u64(3), Ok(None));
-
-    assert_eq!(rs.get_i128(0), Ok(Some(9i128)));
-    assert_eq!(rs.get_i128(1), Ok(Some(87654)));
-    assert_eq!(rs.get_i128(2), Ok(Some(-87654)));
-    assert_eq!(rs.get_i128(3), Ok(None));
-
-    assert_eq!(rs.get_u128(0), Ok(Some(9u128)));
-    assert_eq!(rs.get_u128(1), Ok(Some(87654)));
-    assert_matches!(rs.get_u128(2), Err(CursorError::Conversion { .. }));
-    assert_eq!(rs.get_u128(3), Ok(None));
-
-    assert_eq!(rs.get_isize(0), Ok(Some(9isize)));
-    assert_eq!(rs.get_isize(1), Ok(Some(87654)));
-    assert_eq!(rs.get_isize(2), Ok(Some(-87654)));
-    assert_eq!(rs.get_isize(3), Ok(None));
-
-    assert_eq!(rs.get_usize(0), Ok(Some(9usize)));
-    assert_eq!(rs.get_usize(1), Ok(Some(87654)));
-    assert_matches!(rs.get_usize(2), Err(CursorError::Conversion { .. }));
-    assert_eq!(rs.get_usize(3), Ok(None));
-}
-
-#[test]
-fn test_float_getters() {
-    let testdata = "[ 1.23,\t-1e-3,\tNULL\t]\n";
-    let mut rs = RowSet::new(ReplyBuf::new(testdata.into()), 3);
-    assert_eq!(rs.advance(), Ok(true));
-
-    assert_eq!(rs.get_f32(0), Ok(Some(1.23)));
-    assert_eq!(rs.get_f32(1), Ok(Some(-0.001)));
-    assert_eq!(rs.get_f32(2), Ok(None));
 }

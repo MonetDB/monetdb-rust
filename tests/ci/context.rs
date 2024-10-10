@@ -8,9 +8,10 @@
 
 use anyhow::{bail, Result as AResult};
 
-use monetdb::{Connection, Parameters};
+use monetdb::{ConnectResult, Connection, Cursor, Parameters};
 use std::{
     env::{self, VarError},
+    mem,
     sync::{LazyLock, Mutex, MutexGuard},
 };
 
@@ -36,18 +37,45 @@ pub fn get_server() -> MutexGuard<'static, Server> {
 
 pub struct Server {
     parms: Parameters,
+    shared: Option<Connection>,
 }
 
 impl Server {
     pub fn parms(&self) -> Parameters {
         self.parms.clone()
     }
+
+    pub fn connect(&self) -> ConnectResult<Connection> {
+        Connection::new(self.parms())
+    }
+}
+
+pub fn with_shared_server(f: impl FnOnce(Connection) -> AResult<Connection>) -> AResult<()> {
+    let mut server = get_server();
+    let conn = match mem::take(&mut server.shared) {
+        Some(c) => c,
+        None => server.connect()?,
+    };
+
+    let used_conn = f(conn)?;
+    server.shared = Some(used_conn);
+    Ok(())
+}
+
+pub fn with_shared_cursor(f: impl FnOnce(&mut Cursor) -> AResult<()>) -> AResult<()> {
+    with_shared_server(|conn| {
+        f(&mut conn.cursor())?;
+        Ok(conn)
+    })
 }
 
 fn initialize_server() -> Result<Mutex<Server>, String> {
     match parms_from_env(SERVER_URL_ENV_VAR, Some(DEFAULT_SERVER_URL)) {
         Ok(parms) => {
-            let server = Server { parms };
+            let server = Server {
+                parms,
+                shared: None,
+            };
             Ok(Mutex::new(server))
         }
         Err(e) => Err(format!("{SERVER_URL_ENV_VAR}: {e}")),
