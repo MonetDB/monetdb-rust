@@ -130,7 +130,7 @@ impl MonetType {
             "bigint" => BigInt,
             "hugeint" => HugeInt,
             "oid" => Oid,
-            "varchar" => Varchar(0),
+            "char" | "varchar" => Varchar(0),
             "decimal" => Decimal(0, 0),
             "real" => Real,
             "double" => Double,
