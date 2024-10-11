@@ -49,6 +49,16 @@ fromstr_frommonet!(usize);
 fromstr_frommonet!(f32);
 fromstr_frommonet!(f64);
 
+/// BLOB
+impl FromMonet for Vec<u8> {
+    fn from_monet(field: &[u8]) -> CursorResult<Self> {
+        match hex::decode(field) {
+            Ok(vec) => Ok(vec),
+            Err(e) => Err(conversion_error::<Self>(e)),
+        }
+    }
+}
+
 /// Verify correct UTF-8, return [`CursorError`] if this fails.
 pub(crate) fn from_utf8(field: &[u8]) -> CursorResult<&str> {
     match std::str::from_utf8(field) {
@@ -58,7 +68,7 @@ pub(crate) fn from_utf8(field: &[u8]) -> CursorResult<&str> {
 }
 
 /// Apply the function to the raw result set field, converting any errors to [`CursorError`].
-pub(crate) fn transform<F, T, E>(f: F, field: &[u8]) -> CursorResult<T>
+pub(crate) fn transform<F, T, E>(field: &[u8], f: F) -> CursorResult<T>
 where
     F: for<'x> FnOnce(&'x str) -> Result<T, E>,
     E: fmt::Display,
@@ -67,10 +77,7 @@ where
     let s = from_utf8(field)?;
     match f(s) {
         Ok(value) => Ok(value),
-        Err(e) => Err(CursorError::Conversion {
-            expected_type: type_name::<T>(),
-            message: e.to_string().into(),
-        }),
+        Err(e) => Err(conversion_error::<T>(e)),
     }
 }
 
@@ -80,7 +87,14 @@ where
     T: FromStr + Any,
     <T as FromStr>::Err: fmt::Display,
 {
-    transform(|s| s.parse(), field)
+    transform(field, |s| s.parse())
+}
+
+fn conversion_error<T: Any>(e: impl fmt::Display) -> CursorError {
+    CursorError::Conversion {
+        expected_type: type_name::<T>(),
+        message: e.to_string().into(),
+    }
 }
 
 #[cfg(test)]

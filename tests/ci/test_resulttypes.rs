@@ -97,3 +97,8 @@ fn test_ints() {
         check(&value.to_string(), value);
     }
 }
+
+#[test]
+fn test_blob() {
+    check(r#" BLOB '414243' "#, Vec::from("ABC"));
+}
