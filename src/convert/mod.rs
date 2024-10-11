@@ -59,6 +59,17 @@ impl FromMonet for Vec<u8> {
     }
 }
 
+/// UUID
+#[cfg(feature = "uuid")]
+impl FromMonet for uuid::Uuid {
+    fn from_monet(field: &[u8]) -> CursorResult<Self> {
+        match uuid::Uuid::try_parse_ascii(field) {
+            Ok(u) => Ok(u),
+            Err(e) => Err(conversion_error::<Self>(e)),
+        }
+    }
+}
+
 /// Verify correct UTF-8, return [`CursorError`] if this fails.
 pub(crate) fn from_utf8(field: &[u8]) -> CursorResult<&str> {
     match std::str::from_utf8(field) {

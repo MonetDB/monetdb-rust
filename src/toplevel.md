@@ -100,10 +100,11 @@ Not implemented yet but planned:
 
 [Diesel]: https://crates.io/crates/diesel
 
+
 Optional features
 -----------------
 
-The `monetdb` crate currently defines one optional feature:
+The `monetdb` crate currently defines the following optional features:
 
 * **rustls** Enable a first stab at supporting TLS connections using
   [rustls](https://crates.io/crates/rustls/). The TLS-related configuration
@@ -118,3 +119,6 @@ The `monetdb` crate currently defines one optional feature:
   [dependencies]
   monetdb = { version="0.1.1", features=["rustls"]}
   ```
+
+* **uuid** Enable support for UUID's as defined by the [uuid crate](https://crates.io/crates/uuid).
+  Enabled by default.

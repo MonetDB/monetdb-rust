@@ -102,3 +102,13 @@ fn test_ints() {
 fn test_blob() {
     check(r#" BLOB '414243' "#, Vec::from("ABC"));
 }
+
+#[test]
+#[cfg(feature = "uuid")]
+fn test_uuid() {
+    let u = uuid::Uuid::parse_str("7b4dcdd0-e0f2-4d05-a81b-599f445843b6").unwrap();
+
+    check(r#"  UUID '7b4dcdd0-e0f2-4d05-a81b-599f445843b6'  "#, u);
+    check(r#"  UUID '7b4dcdd0e0f24d05a81b599f445843b6'  "#, u);
+    check(r#"  UUID '7B4DCDD0E0F24D05A81B599F445843B6'  "#, u);
+}
