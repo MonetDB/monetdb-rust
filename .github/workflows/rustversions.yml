@@ -30,11 +30,19 @@ jobs:
       - run: rustup install ${{ matrix.rustversion }}
 
       - run: cargo +${{ matrix.rustversion }} test --lib --examples
+      - run: cargo +${{ matrix.rustversion }} test --lib --examples --no-default-features
+      - run: cargo +${{ matrix.rustversion }} test --lib --examples --all-features
 
       - run: cargo +${{ matrix.rustversion }} test --doc
+      - run: cargo +${{ matrix.rustversion }} test --doc --no-default-features
+      - run: cargo +${{ matrix.rustversion }} test --doc --all-features
 
       - run: rustup component add --toolchain ${{ matrix.rustversion }} clippy
 
       - run: cargo +${{ matrix.rustversion }} clippy --tests -- -D warnings
+      - run: cargo +${{ matrix.rustversion }} clippy --tests --no-default-features -- -D warnings
+      - run: cargo +${{ matrix.rustversion }} clippy --tests --all-features -- -D warnings
 
       - run: cargo +${{ matrix.rustversion }} tree
+      - run: cargo +${{ matrix.rustversion }} tree --no-default-features
+      - run: cargo +${{ matrix.rustversion }} tree --all-features

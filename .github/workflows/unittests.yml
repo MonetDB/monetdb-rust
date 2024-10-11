@@ -28,10 +28,16 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - run: cargo test --lib --examples
+      - run: cargo clippy --tests -- -D warnings
+      - run: cargo clippy --tests --no-default-features -- -D warnings
+      - run: cargo clippy --tests --all-features -- -D warnings
 
       - run: cargo test --doc
+      - run: cargo test --doc --no-default-features
+      - run: cargo test --doc --all-features
 
-      - run: cargo clippy --tests -- -D warnings
+      - run: cargo test --lib --examples
+      - run: cargo test --lib --examples --no-default-features
+      - run: cargo test --lib --examples --all-features
 
       - run: cargo tree

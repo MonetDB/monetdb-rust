@@ -39,3 +39,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - run: cargo test --test ci
+      - run: cargo test --test ci --no-default-features
+      - run: cargo test --test ci --all-features

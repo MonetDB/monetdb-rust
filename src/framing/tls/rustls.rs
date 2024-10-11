@@ -12,13 +12,13 @@ use rustls::{pki_types::ServerName, ClientConnection, StreamOwned};
 
 use crate::{
     framing::{
-        connecting::{ConnResult, ConnectError},
+        connecting::{ConnectError, ConnectResult},
         ServerSock, ServerSockTrait,
     },
     parms::Validated,
 };
 
-pub fn wrap_with_rustls(parms: &Validated, sock: ServerSock) -> ConnResult<ServerSock> {
+pub fn wrap_with_rustls(parms: &Validated, sock: ServerSock) -> ConnectResult<ServerSock> {
     wrap_inner(parms, sock).map_err(|e| ConnectError::TlsError(e.to_string()))
 }
 
