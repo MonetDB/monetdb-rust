@@ -10,6 +10,7 @@
 use std::{
     any::{type_name, type_name_of_val, Any},
     fmt::{self, Debug},
+    str::FromStr,
 };
 
 use monetdb::{convert::FromMonet, CursorResult};
@@ -111,4 +112,55 @@ fn test_uuid() {
     check(r#"  UUID '7b4dcdd0-e0f2-4d05-a81b-599f445843b6'  "#, u);
     check(r#"  UUID '7b4dcdd0e0f24d05a81b599f445843b6'  "#, u);
     check(r#"  UUID '7B4DCDD0E0F24D05A81B599F445843B6'  "#, u);
+}
+
+#[test]
+fn test_decimal_as_float() {
+    check("CAST( 12.34 AS DECIMAL(7,3))", 12.34f32);
+    check("CAST( 12.34 AS DECIMAL(7,3))", 12.34f64);
+    check("CAST( -12.34 AS DECIMAL(7,3))", -12.34f32);
+    check("CAST( -12.34 AS DECIMAL(7,3))", -12.34f64);
+
+    check("CAST( 12.34 AS DECIMAL(7,0))", 12.0f32);
+    check("CAST( 12.34 AS DECIMAL(7,0))", 12.0f64);
+    check("CAST( -12.34 AS DECIMAL(7,0))", -12.0f32);
+    check("CAST( -12.34 AS DECIMAL(7,0))", -12.0f64);
+}
+
+#[cfg(feature = "rust_decimal")]
+#[test]
+fn test_rust_decimal() {
+    use rust_decimal::Decimal;
+
+    let d2 = Decimal::from_str("12.34").unwrap();
+    assert_eq!(d2.scale(), 2);
+
+    check("CAST( 12.34 AS DECIMAL(7,3))", d2);
+    check("CAST( 12.34 AS DECIMAL(7,3))", d2);
+    check("CAST( -12.34 AS DECIMAL(7,3))", -d2);
+    check("CAST( -12.34 AS DECIMAL(7,3))", -d2);
+
+    check("CAST( 12.34 AS DECIMAL(7,0))", Decimal::from(12));
+    check("CAST( 12.34 AS DECIMAL(7,0))", Decimal::from(12));
+    check("CAST( -12.34 AS DECIMAL(7,0))", Decimal::from(-12));
+    check("CAST( -12.34 AS DECIMAL(7,0))", Decimal::from(-12));
+}
+
+#[cfg(feature = "decimal-rs")]
+#[test]
+fn test_decimal_rs() {
+    use decimal_rs::Decimal;
+
+    let d2 = Decimal::from_str("12.34").unwrap();
+    assert_eq!(d2.scale(), 2);
+
+    check("CAST( 12.34 AS DECIMAL(7,3))", d2);
+    check("CAST( 12.34 AS DECIMAL(7,3))", d2);
+    check("CAST( -12.34 AS DECIMAL(7,3))", -d2);
+    check("CAST( -12.34 AS DECIMAL(7,3))", -d2);
+
+    check("CAST( 12.34 AS DECIMAL(7,0))", Decimal::from(12));
+    check("CAST( 12.34 AS DECIMAL(7,0))", Decimal::from(12));
+    check("CAST( -12.34 AS DECIMAL(7,0))", Decimal::from(-12));
+    check("CAST( -12.34 AS DECIMAL(7,0))", Decimal::from(-12));
 }

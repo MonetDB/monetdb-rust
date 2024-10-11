@@ -122,3 +122,11 @@ The `monetdb` crate currently defines the following optional features:
 
 * **uuid** Enable support for UUID's as defined by the [uuid crate](https://crates.io/crates/uuid).
   Enabled by default.
+
+* **rust_decimal** Enable support for Decimal as defined by the [rust_decimal crate](https://crates.io/crates/rust_decimal).
+  Disabled by default.
+
+
+* **decimal-rs** Enable support for Decimal as defined by the [decimal-rs crate](https://crates.io/crates/decimal-rs).
+  Disabled by default.
+

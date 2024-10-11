@@ -19,14 +19,14 @@ pub trait FromMonet
 where
     Self: Sized,
 {
-    fn from_monet(bytes: &[u8]) -> CursorResult<Self>;
+    fn from_monet(field: &[u8]) -> CursorResult<Self>;
 }
 
 macro_rules! fromstr_frommonet {
     ($type:ty) => {
         impl FromMonet for $type {
-            fn from_monet(bytes: &[u8]) -> CursorResult<Self> {
-                let x: $type = transform_fromstr(bytes)?;
+            fn from_monet(field: &[u8]) -> CursorResult<Self> {
+                let x: $type = transform_fromstr(field)?;
                 Ok(x)
             }
         }
@@ -67,6 +67,22 @@ impl FromMonet for uuid::Uuid {
             Ok(u) => Ok(u),
             Err(e) => Err(conversion_error::<Self>(e)),
         }
+    }
+}
+
+/// RUST_DECIMAL
+#[cfg(feature = "rust_decimal")]
+impl FromMonet for rust_decimal::Decimal {
+    fn from_monet(field: &[u8]) -> CursorResult<Self> {
+        transform(field, rust_decimal::Decimal::from_str)
+    }
+}
+
+/// DECIMAL-RS
+#[cfg(feature = "decimal-rs")]
+impl FromMonet for decimal_rs::Decimal {
+    fn from_monet(field: &[u8]) -> CursorResult<Self> {
+        transform(field, decimal_rs::Decimal::from_str)
     }
 }
 
