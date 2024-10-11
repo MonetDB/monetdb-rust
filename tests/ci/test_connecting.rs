@@ -1,5 +1,3 @@
-use std::{io, net::TcpListener};
-
 // SPDX-License-Identifier: MPL-2.0
 //
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -7,9 +5,11 @@ use std::{io, net::TcpListener};
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 //
 // Copyright 2024 MonetDB Foundation
+
 use crate::{get_server, AResult};
 use claims::assert_some;
 use monetdb::{parms::Parm, Connection, CursorResult, Parameters};
+use std::{io, net::TcpListener};
 
 #[test]
 fn test_connect() -> AResult<()> {

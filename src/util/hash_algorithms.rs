@@ -5,6 +5,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 //
 // Copyright 2024 MonetDB Foundation
+
 use digest::{Digest, DynDigest};
 
 // https://github.com/RustCrypto/hashes?tab=readme-ov-file#supported-algorithms

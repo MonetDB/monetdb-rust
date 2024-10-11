@@ -5,6 +5,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 //
 // Copyright 2024 MonetDB Foundation
+
 use std::{io, sync::Arc};
 
 use rustls::{pki_types::ServerName, ClientConnection, StreamOwned};

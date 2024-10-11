@@ -18,6 +18,7 @@ def find_files_to_check():
     rules = [
         ('*.rs', '//'),
         ('*.md', ''),
+        ('*.yml', '#'),
         ('checklicense.py', ''),
         ('.gitignore', ''),
         ('Cargo.toml', ''),
@@ -76,6 +77,8 @@ def find_copyright(prefix: str, lines: List[str]) -> Optional[Tuple[int,int]]:
     else:
         start = len(reduced_lines[:pos].splitlines())
         end = start + len(reduced_header.splitlines())
+        while end < len(lines) and lines[end].strip() == '':
+            end += 1
         # print((start,end))
         return (start, end)
 
@@ -87,7 +90,7 @@ def fix_copyright(prefix: str, old_lines: List[str]) -> List[str]:
         else:
             range = (0,0)
     (start, end) = range
-    new_lines = old_lines[:start] + [(prefix + ' ' + line).rstrip() + '\n' for line in HEADER_LINES] + old_lines[end:]
+    new_lines = old_lines[:start] + [(prefix + ' ' + line).rstrip() + '\n' for line in HEADER_LINES] + ['\n'] + old_lines[end:]
     return new_lines
 
 

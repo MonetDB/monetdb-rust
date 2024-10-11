@@ -5,6 +5,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 //
 // Copyright 2024 MonetDB Foundation
+
 use std::{error, fmt, io};
 
 /// Variant of std::io::Error that implements PartialEq, Eq and Clone.
