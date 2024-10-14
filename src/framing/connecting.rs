@@ -161,7 +161,7 @@ fn connect_tcp_socket(parms: &Validated) -> io::Result<ServerSock> {
 fn connect_socket(parms: &Validated) -> ConnectResult<ServerSock> {
     let mut err: Option<ConnectError> = None;
 
-    if !parms.connect_unix.is_empty() {
+    if parms.connect_unix.is_empty() {
         match connect_unix_socket(parms) {
             Ok(s) => return Ok(s),
             Err(e) => err = Some(e),

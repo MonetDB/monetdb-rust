@@ -283,11 +283,12 @@ impl Cursor {
         }
     }
 
-    fn result_set(&self) -> &ResultSet {
-        let ReplyParser::Data(rs) = &self.replies else {
-            unreachable!("skip_to_result_set() should have ensured a result set");
-        };
-        rs
+    pub(crate) fn result_set(&self) -> CursorResult<&ResultSet> {
+        if let ReplyParser::Data(rs) = &self.replies {
+            Ok(rs)
+        } else {
+            Err(CursorError::NoResultSet)
+        }
     }
 
     fn result_set_mut(&mut self) -> &mut ResultSet {
@@ -313,7 +314,7 @@ impl Cursor {
             next_row,
             total_rows,
             ..
-        } = self.result_set();
+        } = self.result_set().unwrap();
 
         let n = (total_rows - *next_row).min(self.reply_size as u64) as usize;
         (*result_id, *next_row, n)
@@ -383,7 +384,7 @@ impl Cursor {
     }
 
     pub fn get<T: FromMonet>(&self, colnr: usize) -> CursorResult<Option<T>> {
-        self.get_map(colnr, |field| T::from_monet(field))
+        T::extract(self.result_set()?, colnr)
     }
 }
 

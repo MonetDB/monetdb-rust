@@ -12,22 +12,28 @@ use std::{
     str::FromStr,
 };
 
-use crate::{cursor::replies::BadReply, CursorError, CursorResult};
+use crate::{
+    cursor::replies::{BadReply, ResultSet},
+    CursorError, CursorResult,
+};
 
-/// A type that can be extracted from `&'a [u8]`.
+/// A type that can be extracted from a result set.
 pub trait FromMonet
 where
     Self: Sized,
 {
-    fn from_monet(field: &[u8]) -> CursorResult<Self>;
+    fn extract(rs: &ResultSet, colnr: usize) -> CursorResult<Option<Self>>;
 }
 
 macro_rules! fromstr_frommonet {
     ($type:ty) => {
         impl FromMonet for $type {
-            fn from_monet(field: &[u8]) -> CursorResult<Self> {
-                let x: $type = transform_fromstr(field)?;
-                Ok(x)
+            fn extract(rs: &ResultSet, colnr: usize) -> CursorResult<Option<Self>> {
+                let Some(field) = rs.row_set.get_field_raw(colnr) else {
+                    return Ok(None);
+                };
+                let parsed: $type = transform_fromstr(field)?;
+                Ok(Some(parsed))
             }
         }
     };
@@ -51,9 +57,12 @@ fromstr_frommonet!(f64);
 
 /// BLOB
 impl FromMonet for Vec<u8> {
-    fn from_monet(field: &[u8]) -> CursorResult<Self> {
+    fn extract(rs: &ResultSet, colnr: usize) -> CursorResult<Option<Self>> {
+        let Some(field) = rs.row_set.get_field_raw(colnr) else {
+            return Ok(None);
+        };
         match hex::decode(field) {
-            Ok(vec) => Ok(vec),
+            Ok(vec) => Ok(Some(vec)),
             Err(e) => Err(conversion_error::<Self>(e)),
         }
     }
@@ -62,9 +71,12 @@ impl FromMonet for Vec<u8> {
 /// UUID
 #[cfg(feature = "uuid")]
 impl FromMonet for uuid::Uuid {
-    fn from_monet(field: &[u8]) -> CursorResult<Self> {
+    fn extract(rs: &ResultSet, colnr: usize) -> CursorResult<Option<Self>> {
+        let Some(field) = rs.row_set.get_field_raw(colnr) else {
+            return Ok(None);
+        };
         match uuid::Uuid::try_parse_ascii(field) {
-            Ok(u) => Ok(u),
+            Ok(u) => Ok(Some(u)),
             Err(e) => Err(conversion_error::<Self>(e)),
         }
     }
@@ -73,7 +85,10 @@ impl FromMonet for uuid::Uuid {
 /// RUST_DECIMAL
 #[cfg(feature = "rust_decimal")]
 impl FromMonet for rust_decimal::Decimal {
-    fn from_monet(field: &[u8]) -> CursorResult<Self> {
+    fn extract(rs: &ResultSet, colnr: usize) -> CursorResult<Option<Self>> {
+        let Some(field) = rs.row_set.get_field_raw(colnr) else {
+            return Ok(None);
+        };
         transform(field, rust_decimal::Decimal::from_str)
     }
 }
@@ -81,7 +96,10 @@ impl FromMonet for rust_decimal::Decimal {
 /// DECIMAL-RS
 #[cfg(feature = "decimal-rs")]
 impl FromMonet for decimal_rs::Decimal {
-    fn from_monet(field: &[u8]) -> CursorResult<Self> {
+    fn extract(rs: &ResultSet, colnr: usize) -> CursorResult<Option<Self>> {
+        let Some(field) = rs.row_set.get_field_raw(colnr) else {
+            return Ok(None);
+        };
         transform(field, decimal_rs::Decimal::from_str)
     }
 }
@@ -126,86 +144,120 @@ fn conversion_error<T: Any>(e: impl fmt::Display) -> CursorError {
 
 #[cfg(test)]
 mod tests {
-    use claims::assert_err;
+    use claims::{assert_err, assert_matches};
+
+    use crate::{
+        cursor::{replies::ReplyBuf, rowset::RowSet},
+        MonetType, ResultColumn,
+    };
 
     use super::*;
 
-    #[track_caller]
-    fn assert_parses<T>(field: &[u8], value: T)
-    where
-        T: FromMonet,
-        T: fmt::Debug + PartialEq,
-    {
-        let parsed = T::from_monet(field);
-        assert_eq!(parsed, Ok(value));
+    fn extract_from_fake_resultset<T: FromMonet + fmt::Debug>(
+        coltype: MonetType,
+        field: &str,
+    ) -> CursorResult<Option<T>> {
+        let columns = vec![
+            ResultColumn::new("%0", coltype),
+            ResultColumn::new("%1", coltype),
+        ];
+        let body = format!("[ NULL,\t{field}\t]\n");
+        let replybuf = ReplyBuf::new(body.into());
+        let mut row_set = RowSet::new(replybuf, columns.len());
+        row_set.advance().unwrap();
+
+        let rs = ResultSet {
+            result_id: 0,
+            next_row: 0,
+            total_rows: 1,
+            columns,
+            row_set,
+            stashed: None,
+            to_close: None,
+        };
+
+        let col0 = T::extract(&rs, 0);
+        assert_matches!(col0, Ok(None));
+
+        T::extract(&rs, 1)
     }
 
     #[track_caller]
-    fn assert_parse_fails<T>(field: &[u8], _dummy: T)
+    fn assert_parses<T>(field: &str, value: T)
     where
         T: FromMonet,
         T: fmt::Debug + PartialEq,
     {
-        let parsed = T::from_monet(field);
+        let parsed = extract_from_fake_resultset(MonetType::Inet, field);
+        assert_eq!(parsed, Ok(Some(value)));
+    }
+
+    #[track_caller]
+    fn assert_parse_fails<T>(field: &str, _dummy: T)
+    where
+        T: FromMonet,
+        T: fmt::Debug + PartialEq,
+    {
+        let parsed = extract_from_fake_resultset::<T>(MonetType::Inet, field);
         assert_err!(parsed);
     }
 
     #[test]
     fn test_floats() {
-        assert_parses(b"1.23", 1.23);
-        assert_parses(b"-1e-3", -0.001);
+        assert_parses("1.23", 1.23);
+        assert_parses("-1e-3", -0.001);
     }
 
     #[test]
     fn test_ints() {
-        assert_parses(b"9", 9i8);
-        assert_parse_fails(b"87654", 0i8);
-        assert_parse_fails(b"-87654", 0i8);
-        assert_parses(b"9", 9u8);
-        assert_parse_fails(b"87654", 0u8);
-        assert_parse_fails(b"-87654", 0u8);
+        assert_parses("9", 9i8);
+        assert_parse_fails("87654", 0i8);
+        assert_parse_fails("-87654", 0i8);
+        assert_parses("9", 9u8);
+        assert_parse_fails("87654", 0u8);
+        assert_parse_fails("-87654", 0u8);
 
-        assert_parses(b"9", 9i16);
-        assert_parse_fails(b"87654", 0i16);
-        assert_parse_fails(b"-87654", 0i16);
-        assert_parses(b"9", 9u16);
-        assert_parse_fails(b"87654", 0u16);
-        assert_parse_fails(b"-87654", 0u16);
+        assert_parses("9", 9i16);
+        assert_parse_fails("87654", 0i16);
+        assert_parse_fails("-87654", 0i16);
+        assert_parses("9", 9u16);
+        assert_parse_fails("87654", 0u16);
+        assert_parse_fails("-87654", 0u16);
 
-        assert_parses(b"9", 9i32);
-        assert_parses(b"87654", 87654i32);
-        assert_parses(b"-87654", -87654i32);
-        assert_parses(b"9", 9u32);
-        assert_parses(b"87654", 87654u32);
-        assert_parse_fails(b"-87654", 0u32);
+        assert_parses("9", 9i32);
+        assert_parses("87654", 87654i32);
+        assert_parses("-87654", -87654i32);
+        assert_parses("9", 9u32);
+        assert_parses("87654", 87654u32);
+        assert_parse_fails("-87654", 0u32);
 
-        assert_parses(b"9", 9i64);
-        assert_parses(b"87654", 87654i64);
-        assert_parses(b"-87654", -87654i64);
-        assert_parses(b"9", 9u64);
-        assert_parses(b"87654", 87654u64);
-        assert_parse_fails(b"-87654", 0u64);
+        assert_parses("9", 9i64);
+        assert_parses("87654", 87654i64);
+        assert_parses("-87654", -87654i64);
+        assert_parses("9", 9u64);
+        assert_parses("87654", 87654u64);
+        assert_parse_fails("-87654", 0u64);
 
-        assert_parses(b"9", 9i128);
-        assert_parses(b"87654", 87654i128);
-        assert_parses(b"-87654", -87654i128);
-        assert_parses(b"9", 9u128);
-        assert_parses(b"87654", 87654u128);
-        assert_parse_fails(b"-87654", 0u128);
+        assert_parses("9", 9i128);
+        assert_parses("87654", 87654i128);
+        assert_parses("-87654", -87654i128);
+        assert_parses("9", 9u128);
+        assert_parses("87654", 87654u128);
+        assert_parse_fails("-87654", 0u128);
 
-        assert_parses(b"9", 9isize);
-        assert_parses(b"87654", 87654isize);
-        assert_parses(b"-87654", -87654isize);
-        assert_parses(b"9", 9usize);
-        assert_parses(b"87654", 87654usize);
-        assert_parse_fails(b"-87654", 0usize);
+        assert_parses("9", 9isize);
+        assert_parses("87654", 87654isize);
+        assert_parses("-87654", -87654isize);
+        assert_parses("9", 9usize);
+        assert_parses("87654", 87654usize);
+        assert_parse_fails("-87654", 0usize);
     }
 
     #[test]
     fn test_bool() {
-        assert_parses(b"true", true);
-        assert_parses(b"false", false);
+        assert_parses("true", true);
+        assert_parses("false", false);
 
-        assert_parse_fails(b"True", true);
+        assert_parse_fails("True", true);
     }
 }

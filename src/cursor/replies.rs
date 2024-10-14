@@ -546,15 +546,19 @@ impl ReplyParser {
 /// Holds information about a column of a result set.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ResultColumn {
-    name: String,
-    typ: MonetType,
+    pub(crate) name: String,
+    pub(crate) typ: MonetType,
 }
 
 impl ResultColumn {
-    fn empty() -> Self {
+    pub(crate) fn empty() -> Self {
+        Self::new("", MonetType::Bool)
+    }
+
+    pub(crate) fn new(name: &str, typ: MonetType) -> Self {
         ResultColumn {
-            name: "".into(),
-            typ: MonetType::Bool,
+            name: name.into(),
+            typ,
         }
     }
 
