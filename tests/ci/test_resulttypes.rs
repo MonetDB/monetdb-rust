@@ -13,7 +13,10 @@ use std::{
     str::FromStr,
 };
 
-use monetdb::{convert::FromMonet, CursorResult};
+use monetdb::{
+    convert::{raw_decimal::RawDecimal, FromMonet},
+    CursorResult,
+};
 
 use crate::context::with_shared_cursor;
 
@@ -115,6 +118,15 @@ fn test_uuid() {
 }
 
 #[test]
+fn test_rawdecimal() {
+    check("CAST( 12.34 AS DECIMAL(7,3))", RawDecimal(12340i32, 3));
+    check("CAST( -12.34 AS DECIMAL(7,3))", RawDecimal(-12340i32, 3));
+
+    check("CAST( 12.34 AS DECIMAL(7,0))", RawDecimal(12, 0));
+    check("CAST( -12.34 AS DECIMAL(7,0))", RawDecimal(-12, 0));
+}
+
+#[test]
 fn test_decimal_as_float() {
     check("CAST( 12.34 AS DECIMAL(7,3))", 12.34f32);
     check("CAST( 12.34 AS DECIMAL(7,3))", 12.34f64);
@@ -136,13 +148,9 @@ fn test_rust_decimal() {
     assert_eq!(d2.scale(), 2);
 
     check("CAST( 12.34 AS DECIMAL(7,3))", d2);
-    check("CAST( 12.34 AS DECIMAL(7,3))", d2);
-    check("CAST( -12.34 AS DECIMAL(7,3))", -d2);
     check("CAST( -12.34 AS DECIMAL(7,3))", -d2);
 
     check("CAST( 12.34 AS DECIMAL(7,0))", Decimal::from(12));
-    check("CAST( 12.34 AS DECIMAL(7,0))", Decimal::from(12));
-    check("CAST( -12.34 AS DECIMAL(7,0))", Decimal::from(-12));
     check("CAST( -12.34 AS DECIMAL(7,0))", Decimal::from(-12));
 }
 
@@ -155,12 +163,8 @@ fn test_decimal_rs() {
     assert_eq!(d2.scale(), 2);
 
     check("CAST( 12.34 AS DECIMAL(7,3))", d2);
-    check("CAST( 12.34 AS DECIMAL(7,3))", d2);
-    check("CAST( -12.34 AS DECIMAL(7,3))", -d2);
     check("CAST( -12.34 AS DECIMAL(7,3))", -d2);
 
     check("CAST( 12.34 AS DECIMAL(7,0))", Decimal::from(12));
-    check("CAST( 12.34 AS DECIMAL(7,0))", Decimal::from(12));
-    check("CAST( -12.34 AS DECIMAL(7,0))", Decimal::from(-12));
     check("CAST( -12.34 AS DECIMAL(7,0))", Decimal::from(-12));
 }

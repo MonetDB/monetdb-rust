@@ -6,11 +6,15 @@
 //
 // Copyright 2024 MonetDB Foundation
 
+pub mod raw_decimal;
+
 use std::{
     any::{type_name, Any},
     fmt,
     str::FromStr,
 };
+
+use raw_decimal::RawDecimal;
 
 use crate::{
     cursor::replies::{BadReply, ResultSet},
@@ -53,6 +57,17 @@ fromstr_frommonet!(isize);
 fromstr_frommonet!(usize);
 fromstr_frommonet!(f32);
 fromstr_frommonet!(f64);
+
+fromstr_frommonet!(RawDecimal<i8>);
+fromstr_frommonet!(RawDecimal<u8>);
+fromstr_frommonet!(RawDecimal<i16>);
+fromstr_frommonet!(RawDecimal<u16>);
+fromstr_frommonet!(RawDecimal<i32>);
+fromstr_frommonet!(RawDecimal<u32>);
+fromstr_frommonet!(RawDecimal<i64>);
+fromstr_frommonet!(RawDecimal<u64>);
+fromstr_frommonet!(RawDecimal<i128>);
+fromstr_frommonet!(RawDecimal<u128>);
 
 /// BLOB
 impl FromMonet for Vec<u8> {
@@ -250,6 +265,32 @@ mod tests {
         assert_parses("9", 9usize);
         assert_parses("87654", 87654usize);
         assert_parse_fails("-87654", 0usize);
+    }
+
+    #[test]
+    fn test_rawdecimal() {
+        assert_parses("1.23", RawDecimal(123i32, 2));
+        assert_parses("1.20", RawDecimal(120i32, 2));
+        assert_parses("-1.23", RawDecimal(-123i32, 2));
+
+        assert_parses("1.23", RawDecimal(123u32, 2));
+        assert_parses("1.20", RawDecimal(120u32, 2));
+        assert_parse_fails("-1.23", RawDecimal(0u32, 0));
+
+        assert_parses("1.23", RawDecimal(123i8, 2));
+        assert_parses("1.27", RawDecimal(127i8, 2));
+        assert_parse_fails("1.28", RawDecimal(123i8, 2));
+
+        assert_parses("-1.23", RawDecimal(-123i8, 2));
+        assert_parses("-1.27", RawDecimal(-127i8, 2));
+        assert_parse_fails("-1.29", RawDecimal(123i8, 2));
+
+        // If scale is 0, MonetDB omits the period as well
+
+        assert_parses("1", RawDecimal(1, 0));
+        assert_parses("10", RawDecimal(10, 0));
+        assert_parses("-1", RawDecimal(-1, 0));
+        assert_parses("-10", RawDecimal(-10, 0));
     }
 
     #[test]

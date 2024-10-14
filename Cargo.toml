@@ -46,6 +46,7 @@ gethostname = "0.5.0"
 hex = "0.4.3"
 log = "0.4.22"
 memchr = "2.7.4"
+num = "0.4.3"
 ripemd = "0.1.3"
 rust_decimal = { version="1.36.0", features = [ "std" ], optional = true }
 rustls = { version="0.23.13", optional = true }
