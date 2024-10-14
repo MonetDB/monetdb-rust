@@ -32,8 +32,7 @@ macro_rules! fromstr_frommonet {
                 let Some(field) = rs.row_set.get_field_raw(colnr) else {
                     return Ok(None);
                 };
-                let parsed: $type = transform_fromstr(field)?;
-                Ok(Some(parsed))
+                transform_fromstr(field)
             }
         }
     };
@@ -113,7 +112,7 @@ pub(crate) fn from_utf8(field: &[u8]) -> CursorResult<&str> {
 }
 
 /// Apply the function to the raw result set field, converting any errors to [`CursorError`].
-pub(crate) fn transform<F, T, E>(field: &[u8], f: F) -> CursorResult<T>
+pub(crate) fn transform<F, T, E>(field: &[u8], f: F) -> CursorResult<Option<T>>
 where
     F: for<'x> FnOnce(&'x str) -> Result<T, E>,
     E: fmt::Display,
@@ -121,13 +120,13 @@ where
 {
     let s = from_utf8(field)?;
     match f(s) {
-        Ok(value) => Ok(value),
+        Ok(value) => Ok(Some(value)),
         Err(e) => Err(conversion_error::<T>(e)),
     }
 }
 
 /// Convert raw result set field to a value using [`FromStr`].
-pub(crate) fn transform_fromstr<T>(field: &[u8]) -> CursorResult<T>
+pub(crate) fn transform_fromstr<T>(field: &[u8]) -> CursorResult<Option<T>>
 where
     T: FromStr + Any,
     <T as FromStr>::Err: fmt::Display,
@@ -259,5 +258,35 @@ mod tests {
         assert_parses("false", false);
 
         assert_parse_fails("True", true);
+    }
+
+    #[test]
+    fn test_blob() {
+        assert_parses("466f6f", Vec::from(b"Foo"));
+    }
+
+    #[test]
+    #[cfg(feature = "uuid")]
+    fn test_uuid() {
+        let expected = uuid::Uuid::from_str("444fcb84-9a7d-4fe1-adfa-7eae290328c3").unwrap();
+        assert_parses("444fcb84-9a7d-4fe1-adfa-7eae290328c3", expected);
+    }
+
+    #[test]
+    #[cfg(feature = "rust_decimal")]
+    fn test_rust_decimal() {
+        use rust_decimal::Decimal;
+        let s = "-123.45";
+        let d = Decimal::from_str(s).unwrap();
+        assert_parses(s, d);
+    }
+
+    #[test]
+    #[cfg(feature = "decimal-rs")]
+    fn test_decimal_rs() {
+        use decimal_rs::Decimal;
+        let s = "-123.45";
+        let d = Decimal::from_str(s).unwrap();
+        assert_parses(s, d);
     }
 }
