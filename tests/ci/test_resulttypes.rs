@@ -168,3 +168,21 @@ fn test_decimal_rs() {
     check("CAST( 12.34 AS DECIMAL(7,0))", Decimal::from(12));
     check("CAST( -12.34 AS DECIMAL(7,0))", Decimal::from(-12));
 }
+
+#[test]
+fn test_std_duration() {
+    use std::time::Duration;
+
+    let second = Duration::from_secs(1);
+    let minute = 60 * second;
+    let hour = 60 * minute;
+    let day = 24 * hour;
+    check("CAST('10' AS INTERVAL DAY)", 10 * day);
+    check("CAST('10' AS INTERVAL HOUR)", 10 * hour);
+    check("CAST('10' AS INTERVAL MINUTE)", 10 * minute);
+    check("CAST('10' AS INTERVAL SECOND)", 10 * second);
+    check(
+        "CAST('10' AS INTERVAL SECOND) / 4",
+        Duration::from_millis(2500),
+    );
+}

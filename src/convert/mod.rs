@@ -118,6 +118,21 @@ impl FromMonet for decimal_rs::Decimal {
     }
 }
 
+impl FromMonet for std::time::Duration {
+    fn extract(rs: &ResultSet, colnr: usize) -> CursorResult<Option<Self>> {
+        let Some(decimal) = <RawDecimal<u64> as FromMonet>::extract(rs, colnr)? else {
+            return Ok(None);
+        };
+        let milliseconds = decimal.at_scale(3).expect(
+            "expect server to send day_interval and second_interval with milliseconds precision",
+        ); // it's always milliseconds
+        let duration = std::time::Duration::from_millis(milliseconds);
+        Ok(Some(duration))
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
 /// Verify correct UTF-8, return [`CursorError`] if this fails.
 pub(crate) fn from_utf8(field: &[u8]) -> CursorResult<&str> {
     match std::str::from_utf8(field) {
@@ -329,5 +344,13 @@ mod tests {
         let s = "-123.45";
         let d = Decimal::from_str(s).unwrap();
         assert_parses(s, d);
+    }
+
+    #[test]
+    fn test_std_duration() {
+        use std::time::Duration;
+        assert_parses("86400.000", Duration::from_secs(24 * 3600));
+        // Negative durations are not supported
+        assert_parse_fails("-86400.000", Duration::from_secs(0));
     }
 }
