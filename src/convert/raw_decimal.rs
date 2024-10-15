@@ -19,32 +19,36 @@ pub struct RawDecimal<T>(pub T, pub u8);
 pub enum InvalidDecimal {
     #[error("value doesn't fit {}", type_name::<Self>())]
     OutOfRange,
-    #[error("unexpected character in decimal: {0:?}")]
+    #[error("unexpected character: {0:?}")]
     UnexpectedCharacter(char),
+    #[error("empty string")]
+    Empty,
 }
 
 impl<T> RawDecimal<T> {
-    fn parse_signed(digits: &[u8]) -> Result<RawDecimal<T>, InvalidDecimal>
+    fn parse_signed(digits: &[u8]) -> Result<(RawDecimal<T>, &[u8]), InvalidDecimal>
     where
         T: CheckedAdd + CheckedMul + Sub<Output = T> + TryFrom<u8>,
     {
         if let Some(digits) = digits.strip_prefix(b"-") {
-            let RawDecimal(value, scale) = Self::parse_unsigned(digits)?;
-            Ok(RawDecimal(Self::small_constant(0) - value, scale))
+            let (RawDecimal(value, scale), rest) = Self::parse_unsigned(digits)?;
+            let negated = Self::small_constant(0) - value;
+            Ok((RawDecimal(negated, scale), rest))
         } else {
             Self::parse_unsigned(digits)
         }
     }
 
-    fn parse_unsigned(digits: &[u8]) -> Result<RawDecimal<T>, InvalidDecimal>
+    fn parse_unsigned(mut digits: &[u8]) -> Result<(RawDecimal<T>, &[u8]), InvalidDecimal>
     where
         T: CheckedAdd + CheckedMul + TryFrom<u8>,
     {
+        let orig_digits = digits;
+
         let mut scale = 0;
         let mut saw_period = false;
         let mut acc = Self::small_constant(0);
-
-        for &d in digits {
+        while let [d, rest @ ..] = digits {
             match d {
                 b'0'..=b'9' => {
                     if let Some(new) = Self::multiply_accumulate(acc, d - b'0') {
@@ -58,14 +62,23 @@ impl<T> RawDecimal<T> {
                     scale = 0;
                     saw_period = true;
                 }
-                _ => return Err(InvalidDecimal::UnexpectedCharacter(d as char)),
+                _ => break,
             }
+            digits = rest;
         }
 
         if !saw_period {
             scale = 0;
         }
-        Ok(RawDecimal(acc, scale))
+        if digits.len() == orig_digits.len() {
+            // uh oh
+            if let Some(first) = digits.first() {
+                return Err(InvalidDecimal::UnexpectedCharacter(*first as char));
+            } else {
+                return Err(InvalidDecimal::Empty);
+            }
+        }
+        Ok((RawDecimal(acc, scale), digits))
     }
 
     fn multiply_accumulate(acc: T, digit: u8) -> Option<T>
@@ -93,7 +106,11 @@ macro_rules! raw_decimal {
         impl FromStr for RawDecimal<$type> {
             type Err = InvalidDecimal;
             fn from_str(s: &str) -> Result<Self, InvalidDecimal> {
-                Self::$parser(s.as_bytes())
+                let (dec, rest) = Self::$parser(s.as_bytes())?;
+                if let Some(first) = rest.first() {
+                    return Err(InvalidDecimal::UnexpectedCharacter(*first as char));
+                }
+                Ok(dec)
             }
         }
 
@@ -137,10 +154,96 @@ raw_decimal!(i128, parse_signed);
 raw_decimal!(u128, parse_unsigned);
 
 #[test]
+fn test_parse() {
+    let b = |s: &'static str| s.as_bytes();
+
+    assert_eq!(
+        RawDecimal::parse_signed(b"99.9"),
+        Ok((RawDecimal(999i32, 1), b("")))
+    );
+    assert_eq!(
+        RawDecimal::parse_signed(b"99."),
+        Ok((RawDecimal(99i32, 0), b("")))
+    );
+    assert_eq!(
+        RawDecimal::parse_signed(b"99"),
+        Ok((RawDecimal(99i32, 0), b("")))
+    );
+
+    assert_eq!(
+        RawDecimal::parse_signed(b"-99.9"),
+        Ok((RawDecimal(-999i32, 1), b("")))
+    );
+    assert_eq!(
+        RawDecimal::parse_signed(b"-99."),
+        Ok((RawDecimal(-99i32, 0), b("")))
+    );
+    assert_eq!(
+        RawDecimal::parse_signed(b"-99"),
+        Ok((RawDecimal(-99i32, 0), b("")))
+    );
+
+    assert_eq!(
+        RawDecimal::parse_signed(b"9"),
+        Ok((RawDecimal(9i32, 0), b("")))
+    );
+    assert_eq!(
+        RawDecimal::parse_signed(b".9"),
+        Ok((RawDecimal(9i32, 1), b("")))
+    );
+
+    assert_eq!(
+        RawDecimal::<i32>::parse_signed(b""),
+        Err(InvalidDecimal::Empty)
+    );
+    assert_eq!(
+        RawDecimal::<i32>::parse_signed(b"x"),
+        Err(InvalidDecimal::UnexpectedCharacter('x'))
+    );
+
+    assert_eq!(
+        RawDecimal::parse_signed(b"99.9foo"),
+        Ok((RawDecimal(999i32, 1), b("foo")))
+    );
+    assert_eq!(
+        RawDecimal::parse_signed(b"99.foo"),
+        Ok((RawDecimal(99i32, 0), b("foo")))
+    );
+    assert_eq!(
+        RawDecimal::parse_signed(b"99foo"),
+        Ok((RawDecimal(99i32, 0), b("foo")))
+    );
+
+    assert_eq!(
+        RawDecimal::parse_signed(b"-99.9foo"),
+        Ok((RawDecimal(-999i32, 1), b("foo")))
+    );
+    assert_eq!(
+        RawDecimal::parse_signed(b"-99.foo"),
+        Ok((RawDecimal(-99i32, 0), b("foo")))
+    );
+    assert_eq!(
+        RawDecimal::parse_signed(b"-99foo"),
+        Ok((RawDecimal(-99i32, 0), b("foo")))
+    );
+
+    assert_eq!(
+        RawDecimal::parse_signed(b"9foo"),
+        Ok((RawDecimal(9i32, 0), b("foo")))
+    );
+    assert_eq!(
+        RawDecimal::parse_signed(b".9foo"),
+        Ok((RawDecimal(9i32, 1), b("foo")))
+    );
+}
+
+#[test]
 fn test_fromstr() {
     let expected = Ok(RawDecimal(-123i32, 2));
     let actual = "-1.23".parse::<RawDecimal<i32>>();
     assert_eq!(actual, expected);
+
+    claims::assert_err!(RawDecimal::<i32>::from_str("-1.23x"));
 }
 
 #[test]
