@@ -8,6 +8,9 @@
 
 pub mod raw_decimal;
 
+#[cfg(feature = "time")]
+pub mod temporal_time;
+
 #[cfg(test)]
 mod tests;
 

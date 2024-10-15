@@ -53,7 +53,7 @@ rustls = { version="0.23.13", optional = true }
 rustls-platform-verifier = { version="0.3.4", optional = true }
 sha2 = "0.10.8"
 thiserror = "1.0.64"
-time = { version="0.3.36", features = [ "alloc", "std", "local-offset" ] }
+time = { version="0.3.36", features = [ "std", "local-offset" ], optional = true }
 url = "2.5.2"
 uuid = { version="1.10.0", optional = true }
 

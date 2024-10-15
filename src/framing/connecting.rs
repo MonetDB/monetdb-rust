@@ -24,7 +24,6 @@ use std::{
 use std::os::unix::net::UnixStream;
 
 use gethostname;
-use time::UtcOffset;
 
 use crate::{
     cursor::delayed::{DelayedCommands, ExpectedResponse},
@@ -371,10 +370,16 @@ fn challenge_response(
         // MAPI_HANDSHAKE_TIME_ZONE = 5,
         let seconds_east = if let Some(tz_seconds) = parms.connect_timezone_seconds {
             tz_seconds
-        } else if let Ok(off) = UtcOffset::current_local_offset() {
-            off.whole_seconds()
         } else {
-            0
+            // If a date/time crate has been activated, use that.
+            // Otherwise, return UTC.
+            let implementations = [
+                #[cfg(feature = "time")]
+                crate::convert::temporal_time::timezone_offset_east_of_utc,
+                // Fallback
+                || 0i32,
+            ];
+            (implementations[0])()
         };
         if state.time_zone_seconds != seconds_east {
             let mins = seconds_east / 60;
