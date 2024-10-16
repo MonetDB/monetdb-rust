@@ -14,11 +14,7 @@ use num::Zero;
 
 use crate::{cursor::replies::ResultSet, CursorResult};
 
-use super::{
-    conversion_error,
-    raw_decimal::RawDecimal,
-    FromMonet,
-};
+use super::{conversion_error, raw_decimal::RawDecimal, FromMonet};
 
 /// Representation of a DATE value from MonetDB
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -131,6 +127,10 @@ impl RawTime {
             hours,
         };
         Ok(time)
+    }
+
+    pub fn microseconds(&self) -> u32 {
+        self.microseconds + 1_000_000 * self.seconds as u32
     }
 }
 
@@ -290,21 +290,12 @@ impl RawTz {
 #[test]
 fn test_parse_tz() {
     let mut s: &[u8] = b"+00:00xyz";
-    assert_eq!(
-        RawTz::parse(&mut s),
-        Ok(RawTz { seconds_east: 0 })
-    );
+    assert_eq!(RawTz::parse(&mut s), Ok(RawTz { seconds_east: 0 }));
     assert_eq!(s, b"xyz");
     s = b"-00:00";
-    assert_eq!(
-        RawTz::parse(&mut s),
-        Ok(RawTz { seconds_east: 0 })
-    );
+    assert_eq!(RawTz::parse(&mut s), Ok(RawTz { seconds_east: 0 }));
     s = b"+01:00";
-    assert_eq!(
-        RawTz::parse(&mut s),
-        Ok(RawTz { seconds_east: 3600 })
-    );
+    assert_eq!(RawTz::parse(&mut s), Ok(RawTz { seconds_east: 3600 }));
     s = b"+07:30";
     assert_eq!(
         RawTz::parse(&mut s),
@@ -470,7 +461,10 @@ where
             *data = &data[n..];
             Ok(v)
         }
-        _ => Err(conversion_error::<T>("invalid integer")),
+        _ => Err(conversion_error::<T>(format_args!(
+            "invalid integer {:?}",
+            BStr::new(data)
+        ))),
     }
 }
 

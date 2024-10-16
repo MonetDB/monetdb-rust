@@ -25,6 +25,7 @@ def find_files_to_check():
         ('release.toml', ''),
         ('LICENSE', ''),
         ('TODO.org', ''),
+        ('tests/ci/*.sql', '--')
     ]
     file_prefixes = dict()
     unknown = []

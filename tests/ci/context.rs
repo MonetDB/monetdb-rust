@@ -6,9 +6,9 @@
 //
 // Copyright 2024 MonetDB Foundation
 
-use anyhow::{bail, Result as AResult};
+use anyhow::{bail, Context, Result as AResult};
 
-use monetdb::{ConnectResult, Connection, Cursor, Parameters};
+use monetdb::{parms::Parm, ConnectResult, Connection, Cursor, Parameters};
 use std::{
     env::{self, VarError},
     mem,
@@ -22,12 +22,12 @@ const DEFAULT_PASSWORD: &str = "monetdb";
 
 /// This static either holds a mutex-protected Server Context or
 /// the error message we got when we tried to create one.
-static SERVER: LazyLock<Result<Mutex<Server>, String>> = LazyLock::new(initialize_server);
+static SERVER: LazyLock<AResult<Mutex<Server>>> = LazyLock::new(find_and_initialize_server);
 
 /// Get an exclusive handle on the server context, initializing if not already there.
 pub fn get_server() -> MutexGuard<'static, Server> {
     match &*SERVER {
-        Err(e) => panic!("{e}"),
+        Err(e) => panic!("{e:#}"),
         Ok(srv) => match srv.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
@@ -69,19 +69,31 @@ pub fn with_shared_cursor(f: impl FnOnce(&mut Cursor) -> AResult<()>) -> AResult
     })
 }
 
-fn initialize_server() -> Result<Mutex<Server>, String> {
+fn find_and_initialize_server() -> AResult<Mutex<Server>> {
     match parms_from_env(SERVER_URL_ENV_VAR, Some(DEFAULT_SERVER_URL)) {
         Ok(parms) => {
+            let mut conn = Connection::new(parms.clone())?;
+            initialize_server(&mut conn).context("Could not initialize test database")?;
             let server = Server {
                 parms,
-                shared: None,
+                shared: Some(conn),
             };
             Ok(Mutex::new(server))
         }
-        Err(e) => Err(format!("{SERVER_URL_ENV_VAR}: {e}")),
+        Err(e) => bail!("{SERVER_URL_ENV_VAR}: {e}"),
     }
 }
 
+const SQL: &str = include_str!("schema.sql");
+
+fn initialize_server(conn: &mut Connection) -> AResult<()> {
+    let mut cursor = conn.cursor();
+    cursor.execute(SQL)?;
+    cursor.close()?;
+    Ok(())
+}
+
+/// Extract connection parameters from an environment variable
 fn parms_from_env(env_var: &str, default_url: Option<&str>) -> AResult<Parameters> {
     let url = match env::var(env_var) {
         Ok(u) => u,
@@ -99,11 +111,11 @@ fn parms_from_env(env_var: &str, default_url: Option<&str>) -> AResult<Parameter
         .with_user(DEFAULT_USER)?
         .with_password(DEFAULT_PASSWORD)?;
     parms.apply_url(&url)?;
+
+    if parms.is_default(Parm::ConnectTimeout) {
+        parms.set_connect_timeout(2)?;
+    }
+
     parms.validate()?;
-
-    let test_parms = parms.clone().with_connect_timeout(2)?;
-    let conn = Connection::new(test_parms)?;
-    conn.close();
-
     Ok(parms)
 }
