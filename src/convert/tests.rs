@@ -55,7 +55,7 @@ where
 }
 
 #[track_caller]
-fn assert_parse_fails<T>(field: &str, _dummy: T)
+fn assert_parse_fails<T>(field: &str)
 where
     T: FromMonet,
     T: fmt::Debug + PartialEq,
@@ -73,46 +73,46 @@ fn test_floats() {
 #[test]
 fn test_ints() {
     assert_parses("9", 9i8);
-    assert_parse_fails("87654", 0i8);
-    assert_parse_fails("-87654", 0i8);
+    assert_parse_fails::<i8>("87654");
+    assert_parse_fails::<i8>("-87654");
     assert_parses("9", 9u8);
-    assert_parse_fails("87654", 0u8);
-    assert_parse_fails("-87654", 0u8);
+    assert_parse_fails::<u8>("87654");
+    assert_parse_fails::<u8>("-87654");
 
     assert_parses("9", 9i16);
-    assert_parse_fails("87654", 0i16);
-    assert_parse_fails("-87654", 0i16);
+    assert_parse_fails::<i16>("87654");
+    assert_parse_fails::<i16>("-87654");
     assert_parses("9", 9u16);
-    assert_parse_fails("87654", 0u16);
-    assert_parse_fails("-87654", 0u16);
+    assert_parse_fails::<u16>("87654");
+    assert_parse_fails::<u16>("-87654");
 
     assert_parses("9", 9i32);
     assert_parses("87654", 87654i32);
     assert_parses("-87654", -87654i32);
     assert_parses("9", 9u32);
     assert_parses("87654", 87654u32);
-    assert_parse_fails("-87654", 0u32);
+    assert_parse_fails::<u32>("-87654");
 
     assert_parses("9", 9i64);
     assert_parses("87654", 87654i64);
     assert_parses("-87654", -87654i64);
     assert_parses("9", 9u64);
     assert_parses("87654", 87654u64);
-    assert_parse_fails("-87654", 0u64);
+    assert_parse_fails::<u64>("-87654");
 
     assert_parses("9", 9i128);
     assert_parses("87654", 87654i128);
     assert_parses("-87654", -87654i128);
     assert_parses("9", 9u128);
     assert_parses("87654", 87654u128);
-    assert_parse_fails("-87654", 0u128);
+    assert_parse_fails::<u128>("-87654");
 
     assert_parses("9", 9isize);
     assert_parses("87654", 87654isize);
     assert_parses("-87654", -87654isize);
     assert_parses("9", 9usize);
     assert_parses("87654", 87654usize);
-    assert_parse_fails("-87654", 0usize);
+    assert_parse_fails::<usize>("-87654");
 }
 
 #[test]
@@ -123,15 +123,15 @@ fn test_rawdecimal() {
 
     assert_parses("1.23", RawDecimal(123u32, 2));
     assert_parses("1.20", RawDecimal(120u32, 2));
-    assert_parse_fails("-1.23", RawDecimal(0u32, 0));
+    assert_parse_fails::<RawDecimal<u32>>("-1.23");
 
     assert_parses("1.23", RawDecimal(123i8, 2));
     assert_parses("1.27", RawDecimal(127i8, 2));
-    assert_parse_fails("1.28", RawDecimal(123i8, 2));
+    assert_parse_fails::<RawDecimal<i8>>("1.28");
 
     assert_parses("-1.23", RawDecimal(-123i8, 2));
     assert_parses("-1.27", RawDecimal(-127i8, 2));
-    assert_parse_fails("-1.29", RawDecimal(123i8, 2));
+    assert_parse_fails::<RawDecimal<i8>>("-1.29");
 
     // If scale is 0, MonetDB omits the period as well
 
@@ -146,7 +146,7 @@ fn test_bool() {
     assert_parses("true", true);
     assert_parses("false", false);
 
-    assert_parse_fails("True", true);
+    assert_parse_fails::<bool>("True");
 }
 
 #[test]
@@ -184,5 +184,5 @@ fn test_std_duration() {
     use std::time::Duration;
     assert_parses("86400.000", Duration::from_secs(24 * 3600));
     // Negative durations are not supported
-    assert_parse_fails("-86400.000", Duration::from_secs(0));
+    assert_parse_fails::<Duration>("-86400.000");
 }
