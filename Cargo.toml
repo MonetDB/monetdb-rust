@@ -37,6 +37,7 @@ decimal-rs = [ "dep:decimal-rs" ]
 
 [dependencies]
 array-macro = "2.1.8"
+atoi = "2.0.0"
 bstr = "1.10.0"
 claims = "0.7.1"
 decimal-rs = { version="0.1.43", optional = true }

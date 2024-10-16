@@ -26,7 +26,7 @@ pub enum InvalidDecimal {
 }
 
 impl<T> RawDecimal<T> {
-    fn parse_signed(digits: &[u8]) -> Result<(RawDecimal<T>, &[u8]), InvalidDecimal>
+    pub(crate) fn parse_signed(digits: &[u8]) -> Result<(RawDecimal<T>, &[u8]), InvalidDecimal>
     where
         T: CheckedAdd + CheckedMul + Sub<Output = T> + TryFrom<u8>,
     {
@@ -39,7 +39,9 @@ impl<T> RawDecimal<T> {
         }
     }
 
-    fn parse_unsigned(mut digits: &[u8]) -> Result<(RawDecimal<T>, &[u8]), InvalidDecimal>
+    pub(crate) fn parse_unsigned(
+        mut digits: &[u8],
+    ) -> Result<(RawDecimal<T>, &[u8]), InvalidDecimal>
     where
         T: CheckedAdd + CheckedMul + TryFrom<u8>,
     {

@@ -7,6 +7,7 @@
 // Copyright 2024 MonetDB Foundation
 
 use claims::{assert_err, assert_matches};
+use raw_temporal::{RawDate, RawTime, RawTimeTz, RawTimestamp, RawTz};
 
 use crate::{
     cursor::{replies::ReplyBuf, rowset::RowSet},
@@ -185,4 +186,92 @@ fn test_std_duration() {
     assert_parses("86400.000", Duration::from_secs(24 * 3600));
     // Negative durations are not supported
     assert_parse_fails::<Duration>("-86400.000");
+}
+
+#[test]
+fn test_rawdate() {
+    assert_parses(
+        "2024-10-16",
+        RawDate {
+            day: 16,
+            month: 10,
+            year: 2024,
+        },
+    );
+    assert_parses(
+        "124-10-16",
+        RawDate {
+            day: 16,
+            month: 10,
+            year: 124,
+        },
+    );
+    assert_parses(
+        "-2024-10-16",
+        RawDate {
+            day: 16,
+            month: 10,
+            year: -2024,
+        },
+    );
+
+    assert_parse_fails::<RawDate>("2024-10-16xyz");
+    assert_parse_fails::<RawDate>("1234");
+}
+
+#[test]
+fn test_rawtime() {
+    assert_parses(
+        "12:34:56.789",
+        RawTime {
+            microseconds: 789000,
+            seconds: 56,
+            minutes: 34,
+            hours: 12,
+        },
+    );
+    assert_parse_fails::<RawTime>("12:34:56.789xyz");
+    assert_parse_fails::<RawTime>("12:34:56.789+00:00");
+}
+
+#[test]
+fn test_rawtimestamp() {
+    assert_parses(
+        "2024-10-16 12:34:56.789",
+        RawTimestamp {
+            date: RawDate {
+                day: 16,
+                month: 10,
+                year: 2024,
+            },
+            time: RawTime {
+                microseconds: 789000,
+                seconds: 56,
+                minutes: 34,
+                hours: 12,
+            },
+        },
+    );
+    assert_parse_fails::<RawTime>("2024-10-16 12:34:56.789xyz");
+    assert_parse_fails::<RawTime>("2024-10-16 12:34:56.789+00:00");
+}
+
+#[test]
+fn test_rawtimetz() {
+    assert_parses(
+        "12:34:56.789+02:00",
+        RawTimeTz {
+            time: RawTime {
+                microseconds: 789000,
+                seconds: 56,
+                minutes: 34,
+                hours: 12,
+            },
+            tz: RawTz {
+                seconds_east: 2 * 3600,
+            },
+        },
+    );
+    assert_parse_fails::<RawTimeTz>("12:34:56.789");
+    assert_parse_fails::<RawTimeTz>("12:34:56.789+02:00xyz");
 }

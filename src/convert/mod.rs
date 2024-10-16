@@ -6,7 +6,24 @@
 //
 // Copyright 2024 MonetDB Foundation
 
+macro_rules! fromstr_frommonet {
+    ($type:ty) => {
+        impl crate::convert::FromMonet for $type {
+            fn extract(
+                rs: &crate::cursor::replies::ResultSet,
+                colnr: usize,
+            ) -> CursorResult<Option<Self>> {
+                let Some(field) = rs.row_set.get_field_raw(colnr) else {
+                    return Ok(None);
+                };
+                crate::convert::transform_fromstr(field)
+            }
+        }
+    };
+}
+
 pub mod raw_decimal;
+pub mod raw_temporal;
 
 #[cfg(feature = "time")]
 pub mod temporal_time;
@@ -33,19 +50,6 @@ where
     Self: Sized,
 {
     fn extract(rs: &ResultSet, colnr: usize) -> CursorResult<Option<Self>>;
-}
-
-macro_rules! fromstr_frommonet {
-    ($type:ty) => {
-        impl FromMonet for $type {
-            fn extract(rs: &ResultSet, colnr: usize) -> CursorResult<Option<Self>> {
-                let Some(field) = rs.row_set.get_field_raw(colnr) else {
-                    return Ok(None);
-                };
-                transform_fromstr(field)
-            }
-        }
-    };
 }
 
 fromstr_frommonet!(bool);
@@ -124,6 +128,7 @@ impl FromMonet for decimal_rs::Decimal {
     }
 }
 
+/// std::time::Duration
 impl FromMonet for std::time::Duration {
     fn extract(rs: &ResultSet, colnr: usize) -> CursorResult<Option<Self>> {
         let Some(decimal) = <RawDecimal<u64> as FromMonet>::extract(rs, colnr)? else {
